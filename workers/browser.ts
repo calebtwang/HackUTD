@@ -1,28 +1,40 @@
 import { chromium, type Browser, type BrowserContext, type Page, type Route } from 'playwright';
-import { allowedUrl, type PageDescription } from './safety.ts';
+import { allowedUrl, allowedDiscoveryUrl, type PageDescription } from './safety.ts';
+
+const documentDestinations = new WeakMap<Page, { requested: string; resolved: string }>();
 
 /** Fetch redirects ourselves: route.continue alone does not guard a redirect chain. */
-async function routeWithinOrigin(route: Route, context: BrowserContext, base: string): Promise<void> {
+async function routeWithinOrigin(route: Route, context: BrowserContext, base: string, readOrigins: readonly string[]): Promise<void> {
   const request = route.request();
-  let url = allowedUrl(request.url(), base).href;
   let method = request.method();
+  let url = allowedDiscoveryUrl(request.url(), base, readOrigins, method).href;
   let data = request.postDataBuffer() ?? undefined;
   const headers = await request.allHeaders();
   delete headers.host;
   delete headers['content-length'];
   for (let count = 0; count <= 5; count++) {
-    allowedUrl(url, base);
+    allowedDiscoveryUrl(url, base, readOrigins, method);
     const response = await context.request.fetch(url, { method, headers, data, maxRedirects: 0, timeout: 15_000, failOnStatusCode: false });
     const location = response.headers().location;
     if ([301, 302, 303, 307, 308].includes(response.status()) && location) {
-      url = allowedUrl(new URL(location, url).href, base).href;
       if (response.status() === 303 || ([301, 302].includes(response.status()) && method === 'POST')) {
         method = 'GET';
         data = undefined;
         delete headers['content-type'];
       }
+      const next = allowedDiscoveryUrl(new URL(location, url).href, base, readOrigins, method).href;
+      if (new URL(next).origin !== new URL(url).origin) {
+        for (const header of ['authorization', 'proxy-authorization', 'cookie', 'referer']) delete headers[header];
+      }
+      url = next;
       await response.dispose();
       continue;
+    }
+    if (request.isNavigationRequest()) {
+      const frame = request.frame();
+      if (frame === frame.page().mainFrame()) {
+        documentDestinations.set(frame.page(), { requested: request.url(), resolved: url });
+      }
     }
     await route.fulfill({ response });
     await response.dispose();
@@ -31,13 +43,13 @@ async function routeWithinOrigin(route: Route, context: BrowserContext, base: st
   throw new Error('Demo redirect limit exceeded.');
 }
 
-export async function openDemoBrowser(base: string, onBlocked?: () => void): Promise<{ browser: Browser; context: BrowserContext; page: Page }> {
+export async function openDemoBrowser(base: string, onBlocked?: () => void, readOrigins: readonly string[] = []): Promise<{ browser: Browser; context: BrowserContext; page: Page }> {
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ serviceWorkers: 'block', acceptDownloads: false });
   await context.route('**/*', async route => {
     // The worker reads its own DB subscription; a page's endless dashboard feed is unnecessary.
     if (route.request().resourceType() === 'eventsource') { await route.abort('blockedbyclient'); return; }
-    try { await routeWithinOrigin(route, context, base); }
+    try { await routeWithinOrigin(route, context, base, readOrigins); }
     catch { onBlocked?.(); await route.abort('blockedbyclient').catch(() => {}); }
   });
   // The mock forms use HTTP only. Block WebSockets, including cross-origin ones.
@@ -50,8 +62,19 @@ export async function openDemoBrowser(base: string, onBlocked?: () => void): Pro
   return { browser, context, page };
 }
 
-export async function inspectDemoPage(page: Page, base: string): Promise<PageDescription> {
-  const url = allowedUrl(page.url(), base).href;
+export async function inspectDemoPage(page: Page, base: string, readOrigins: readonly string[] = []): Promise<PageDescription> {
+  // Fulfilling a manually followed redirect leaves Chromium at the requested
+  // address. Navigate to the validated destination so the recorded URL and
+  // relative links/actions agree with the actual document we fetched.
+  for (let count = 0; count <= 5; count++) {
+    const destination = documentDestinations.get(page);
+    const current = allowedDiscoveryUrl(page.url(), base, readOrigins);
+    current.hash = '';
+    if (!destination || destination.requested !== current.href || destination.resolved === current.href) break;
+    if (count === 5) throw new Error('Demo document redirect limit exceeded.');
+    await page.goto(allowedDiscoveryUrl(destination.resolved, base, readOrigins).href, { waitUntil: 'domcontentloaded' });
+  }
+  const url = allowedDiscoveryUrl(page.url(), base, readOrigins).href;
   const content = page.locator('[data-crawl-content]').first();
   await content.waitFor({ state: 'visible' });
   const text = (await content.innerText()).trim().slice(0, 12_000);
@@ -70,6 +93,9 @@ export async function inspectDemoPage(page: Page, base: string): Promise<PageDes
       formAction: form.action || location.href,
     };
   });
-  allowedUrl(description.formAction, base);
+  // A forum form is readable metadata only; recipe validation still requires
+  // both the document and form action to belong to the submission origin.
+  if (new URL(url).origin === new URL(base).origin) allowedUrl(description.formAction, base);
+  else allowedDiscoveryUrl(description.formAction, base, readOrigins);
   return { url, title, text, ...description };
 }

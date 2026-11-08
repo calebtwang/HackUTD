@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { allowedUrl, canonicalPageUrl, classifyFixture, classifyReadOnlyFixture, observedFormDetails, ownedPageLinks, publicInspectionNeeded, submissionUrl, validateAnalysis, validateReadOnlyAnalysis, validateRecipe, type PageDescription } from '../workers/safety.ts';
+import { allowedUrl, allowedDiscoveryUrl, canonicalPageUrl, configuredReadOrigins, classifyFixture, classifyReadOnlyFixture, observedFormDetails, ownedPageLinks, publicInspectionNeeded, submissionUrl, validateAnalysis, validateReadOnlyAnalysis, validateRecipe, type PageDescription } from '../workers/safety.ts';
 import { canonicalDemoUrl } from '../shared/contracts.ts';
 import { analyzePublicPage } from '../workers/model.ts';
 import { fetchPublicPage, isPublicAddress, PUBLIC_PAGE_BYTE_LIMIT, publicPageLinks, publicPageUrl, resolvePublicTarget, type PublicAddress, type PublicResponse } from '../workers/public-pages.ts';
@@ -19,6 +19,22 @@ test('exact origin guard rejects schemes, credentials, other ports and deceptive
   for (const url of ['https://127.0.0.1:3210/demo', 'http://127.0.0.1:3211/', 'http://127.0.0.1.evil.test:3210/', '//evil.test/', 'javascript:alert(1)', 'file:///tmp/a', 'http://user:pass@127.0.0.1:3210/']) {
     assert.throws(() => allowedUrl(url, base), Error, url);
   }
+});
+
+test('a configured forum adds only an exact read origin, never another submission origin', () => {
+  const forum = 'https://forum.example';
+  const reads = configuredReadOrigins(forum);
+  assert.deepEqual(configuredReadOrigins(undefined), []);
+  assert.deepEqual(reads, [forum]);
+  assert.equal(allowedDiscoveryUrl(`${forum}/`, base, reads).origin, forum);
+  assert.equal(allowedDiscoveryUrl(`${forum}/article`, base, reads, 'HEAD').origin, forum);
+  for (const method of ['POST', 'PUT', 'DELETE', 'OPTIONS']) assert.throws(() => allowedDiscoveryUrl(`${forum}/`, base, reads, method));
+  for (const url of ['https://forum.example.evil/', 'http://forum.example/', 'https://forum.example:444/', 'https://user:pass@forum.example/']) assert.throws(() => allowedDiscoveryUrl(url, base, reads));
+  for (const value of [`${forum}/path`, `${forum}/?query=1`, `${forum}/#hash`, 'file:///tmp/forum']) assert.throws(() => configuredReadOrigins(value));
+  assert.throws(() => allowedUrl(forum, base));
+  assert.throws(() => submissionUrl({ ...recipe(), url: `${forum}/form` }, base, 'run', 'site', 'scout'));
+  assert.throws(() => validateRecipe({ ...recipe(), url: `${forum}/form` }, { ...page, url: `${forum}/form`, formAction: `${forum}/submit` }, base));
+  assert.deepEqual(ownedPageLinks([`${forum}/?site=discussion&agent=topic`, `${base}/phishing?runId=old`, 'https://outside.example/'], base, reads), [`${forum}/?agent=topic&site=discussion`, `${base}/phishing`]);
 });
 
 test('recipe validation rejects model-invented fields, actions, external form destinations and source duplication', () => {

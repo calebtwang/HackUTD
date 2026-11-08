@@ -41,16 +41,40 @@ export function allowedUrl(input: string, base: string): URL {
   return url;
 }
 
+/** Only deployment configuration, never a page or model, grants another read origin. */
+export function configuredReadOrigins(forumOrigin?: string): string[] {
+  if (!forumOrigin?.trim()) return [];
+  const url = new URL(forumOrigin);
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
+    throw new Error('FORUM_PUBLIC_ORIGIN must be an exact HTTP(S) origin.');
+  }
+  return [url.origin];
+}
+
+export function allowedDiscoveryUrl(input: string, base: string, readOrigins: readonly string[] = [], method = 'GET'): URL {
+  const url = new URL(input, base);
+  if (url.origin === new URL(base).origin) return allowedUrl(url.href, base);
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || !readOrigins.includes(url.origin) || !['GET', 'HEAD'].includes(method.toUpperCase())) {
+    throw new Error('The worker may only read configured forum origins and submit to the demo origin.');
+  }
+  return url;
+}
+
+export function canonicalDiscoveryUrl(input: string, base: string, readOrigins: readonly string[] = []): string {
+  const url = allowedDiscoveryUrl(input, base, readOrigins);
+  return canonicalDemoUrl(url.href, url.origin === new URL(base).origin);
+}
+
 /** Keep worker navigation and transactional database URL de-duplication aligned. */
 export function canonicalPageUrl(input: string, base: string): string {
   return canonicalDemoUrl(allowedUrl(input, base).href);
 }
 
 /** Any owned path can be an entry or link; external links never enter the queue. */
-export function ownedPageLinks(links: string[], base: string): string[] {
+export function ownedPageLinks(links: string[], base: string, readOrigins: readonly string[] = []): string[] {
   const result = new Set<string>();
   for (const link of links) {
-    try { result.add(canonicalPageUrl(link, base)); }
+    try { result.add(canonicalDiscoveryUrl(link, base, readOrigins)); }
     catch { /* A page may link outside the owned demonstration. */ }
   }
   return [...result];

@@ -15,13 +15,13 @@ const ENTRY_POINTS_KEY = 'demo-entry-points';
 const fmtTime = (time: number) => time ? new Date(time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—';
 const duration = (seconds: number) => `${Math.floor(seconds / 60)}m ${Math.floor(seconds % 60).toString().padStart(2, '0')}s`;
 const statusText = (status: string) => status.replaceAll('_', ' ').replaceAll('-', ' ');
-type PublicConfig = { siteMode: 'manager' | 'phishing'; demoOrigin: string; managerOrigin: string; authRequired: boolean };
+type PublicConfig = { siteMode: 'manager' | 'phishing' | 'forum'; demoOrigin: string; managerOrigin: string; forumOrigin?: string; forumUrl?: string; authRequired: boolean };
 type AccessState = { authenticated: boolean; required: boolean };
 
 async function readPublicConfig(): Promise<PublicConfig> {
   const response = await fetch('/api/public-config');
   if (response.status === 404 && ['localhost', '127.0.0.1'].includes(window.location.hostname)) {
-    return { siteMode: 'manager', demoOrigin: window.location.origin, managerOrigin: window.location.origin, authRequired: false };
+    return { siteMode: 'manager', demoOrigin: window.location.origin, managerOrigin: window.location.origin, forumOrigin: '', forumUrl: new URL('/forum',window.location.origin).href, authRequired: false };
   }
   if (!response.ok) throw new Error('Unable to load the demo settings. Refresh to try again.');
   return response.json();
@@ -56,7 +56,7 @@ function RootPage() {
   }, []);
   if (error) return <div className="manager"><main><p className="notice error" role="alert">{error}</p></main></div>;
   if (!config) return <div className="manager"><main><p role="status">Connecting…</p></main></div>;
-  return config.siteMode === 'phishing' ? <FixturePage path="/phishing" /> : <Manager path="/" initialConfig={config} />;
+  return config.siteMode === 'phishing' ? <FixturePage path="/phishing" /> : config.siteMode === 'forum' ? <Forum initialConfig={config} /> : <Manager path="/" initialConfig={config} />;
 }
 
 function Manager({ path, initialConfig }: { path: string; initialConfig?: PublicConfig }) {
@@ -91,11 +91,15 @@ function Manager({ path, initialConfig }: { path: string; initialConfig?: Public
     const saved = snapshot.run?.entryPoints;
     let browserHasSavedEntries = false;
     try { browserHasSavedEntries = Boolean(localStorage.getItem(ENTRY_POINTS_KEY)); } catch { /* Storage is optional. */ }
-    if (!entryPointsEdited && !browserHasSavedEntries) {
-      if (saved) setEntryPoints({ scout: saved.scout || '', finch: saved.finch || '' });
-      else if (config?.authRequired && config.demoOrigin) setEntryPoints({ scout: new URL('/forum', config.demoOrigin).href, finch: '' });
+    if (!entryPointsEdited) {
+      if (saved) {
+        const adopted = { scout: saved.scout || '', finch: saved.finch || '' };
+        setEntryPoints(adopted);
+        try { localStorage.setItem(ENTRY_POINTS_KEY, JSON.stringify(adopted)); } catch { /* Storage is optional. */ }
+      }
+      else if (!snapshot.run && !browserHasSavedEntries && config?.authRequired && config.demoOrigin) setEntryPoints({ scout: config.forumUrl || new URL('/forum', config.demoOrigin).href, finch: '' });
     }
-  }, [snapshot.run?.id, entryPointsEdited, config]);
+  }, [snapshot.run?.id, snapshot.run?.entryPoints?.scout, snapshot.run?.entryPoints?.finch, entryPointsEdited, config]);
   useEffect(() => {
     if (!access || (isDebug && !canControl)) return;
     let alive = true;
@@ -203,7 +207,7 @@ function Manager({ path, initialConfig }: { path: string; initialConfig?: Public
         <h1>Agent manager</h1>
         <div className="table-scroll"><table className="agents-table">
           <thead><tr><th>Name</th><th>Phone</th><th>Entry point</th></tr></thead>
-          <tbody>{agents.map(agent => <AgentRow key={agent.id} agent={agent} entryPoint={!canControl && snapshot.run?.entryPoints ? snapshot.run.entryPoints[agent.id] || '' : entryPoints[agent.id as keyof EntryPoints]} disabled={!canControl || running || !!pending} onEntryPointChange={value => editEntryPoint(agent.id as keyof EntryPoints, value)} />)}</tbody>
+          <tbody>{agents.map(agent => <AgentRow key={agent.id} agent={agent} entryPoint={(running || !canControl) && snapshot.run?.entryPoints ? snapshot.run.entryPoints[agent.id] || '' : entryPoints[agent.id as keyof EntryPoints]} disabled={!canControl || running || !!pending} onEntryPointChange={value => editEntryPoint(agent.id as keyof EntryPoints, value)} />)}</tbody>
         </table></div>
         <div className="controls">
           <button disabled={!canControl || !modelReady || running || !!pending} onClick={() => action('start', { mode: 'live', entryPoints })}>Start</button>
@@ -302,16 +306,16 @@ function DemoNotice({ phishing = false }: { phishing?: boolean }) {
   return <div className="demo-notice" data-demo-banner="true" data-ignore-analysis="true" role="note"><strong>{phishing ? 'Demo phishing site.' : 'Demo website.'}</strong> Fictional content. Use synthetic details only. No real offer or payment.</div>;
 }
 
-function Forum() {
-  const [claimUrl, setClaimUrl] = useState('/phishing');
+function Forum({ initialConfig }: { initialConfig?: PublicConfig }) {
+  const [claimUrl, setClaimUrl] = useState(initialConfig ? new URL('/phishing',initialConfig.demoOrigin).href : '/phishing');
   useEffect(() => {
     let alive = true;
     document.title = 'Community forum';
-    fetch('/api/public-config').then(async response => response.ok ? response.json() as Promise<PublicConfig> : null).then(config => {
-      if (alive && config?.authRequired && config.demoOrigin) setClaimUrl(new URL('/', config.demoOrigin).href);
+    (initialConfig ? Promise.resolve(initialConfig) : readPublicConfig()).then(config => {
+      if (alive && config?.authRequired && config.demoOrigin) setClaimUrl(new URL('/phishing', config.demoOrigin).href);
     }).catch(() => { /* The owned /phishing route remains available if configuration cannot load. */ });
     return () => { alive = false; };
-  }, []);
+  }, [initialConfig]);
   return <div className="forum-page"><DemoNotice />
     <main className="forum-content" data-crawl-content><h1>Community forum</h1><p>General discussion and local notices</p>
       <table><thead><tr><th>Topic</th><th>Posted by</th><th>Date</th></tr></thead><tbody>

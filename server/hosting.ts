@@ -3,7 +3,7 @@ import type { Request, Response, NextFunction } from 'express';
 import type { AppSnapshot, Site } from '../shared/contracts.js';
 import { normalizeEntryPoints } from './entry-points.js';
 
-export type HostingOptions = { port: number; managerOrigin?: string; demoOrigin?: string; demoAliases?: string[]; judgeCode?: string; production?: boolean };
+export type HostingOptions = { port: number; managerOrigin?: string; demoOrigin?: string; demoAliases?: string[]; forumOrigin?: string; judgeCode?: string; production?: boolean };
 const SESSION_COOKIE = '__Host-judge';
 const SESSION_MS = 12 * 60 * 60 * 1000;
 const RATE_WINDOW_MS = 15 * 60 * 1000;
@@ -12,6 +12,7 @@ const MANAGER_PAGES = new Set(['/', '/debug', '/setup', '/evidence']);
 const DEMO_PAGES = new Set(['/', '/forum', '/phishing', '/admin', '/demo/claim', '/demo/benign-event', '/demo/benign-news']);
 const MANAGER_READS = new Set(['/api/state', '/api/events', '/api/debug/state', '/api/auth/status', '/api/public-config', '/health']);
 const DEMO_READS = new Set(['/api/public-config']);
+const FORUM_PAGES = new Set(['/', '/forum', '/demo/benign-event', '/demo/benign-news', '/api/public-config']);
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
 function publicOrigin(value: string, label: string): string {
@@ -33,14 +34,18 @@ export function staticAssetPath(pathname: string): boolean {
 /** Host and cookie policy is independent of the database and never trusts forwarded headers. */
 export function createHosting(options: HostingOptions, now = Date.now) {
   const localOrigin = `http://127.0.0.1:${options.port}`;
-  const hosted = Boolean(options.managerOrigin || options.demoOrigin || options.demoAliases?.length);
-  if (hosted && (!options.managerOrigin || !options.demoOrigin || !options.judgeCode || options.judgeCode.trim().length < 12)) throw new Error('Hosted mode requires both public origins and a JUDGE_ACCESS_CODE of at least 12 characters.');
+  const hosted = Boolean(options.managerOrigin || options.demoOrigin || options.demoAliases?.length || options.forumOrigin);
+  if (hosted && (!options.managerOrigin || !options.demoOrigin || !options.judgeCode || options.judgeCode.trim().length < 6)) throw new Error('Hosted mode requires both public origins and a JUDGE_ACCESS_CODE of at least 6 characters.');
   const managerOrigin = hosted ? publicOrigin(options.managerOrigin!, 'MANAGER_PUBLIC_ORIGIN') : localOrigin;
   const demoOrigin = hosted ? publicOrigin(options.demoOrigin!, 'DEMO_PUBLIC_ORIGIN') : localOrigin;
   if (hosted && managerOrigin === demoOrigin) throw new Error('Manager and demonstration origins must be different.');
   const demoOrigins = new Set([demoOrigin,...(options.demoAliases || []).map(value=>publicOrigin(value,'DEMO_PUBLIC_ALIASES'))]);
   if (hosted && demoOrigins.has(managerOrigin)) throw new Error('A demonstration alias cannot be the manager origin.');
   const fixtureHosts = new Map([...demoOrigins].map(origin=>[new URL(origin).host,origin]));
+  const forumOrigin = options.forumOrigin ? publicOrigin(options.forumOrigin,'FORUM_PUBLIC_ORIGIN') : '';
+  if (forumOrigin && (forumOrigin === managerOrigin || demoOrigins.has(forumOrigin))) throw new Error('The forum origin must be separate from manager and demonstration origins.');
+  const forumHost = forumOrigin ? new URL(forumOrigin).host : '';
+  const forumUrl = forumOrigin ? `${forumOrigin}/` : `${demoOrigin}/forum`;
   const production = hosted || Boolean(options.production);
   const sessions = new Map<string, number>();
   const failures = new Map<string, { attempts: number; expiresAt: number }>();
@@ -48,7 +53,8 @@ export function createHosting(options: HostingOptions, now = Date.now) {
   function fixtureOrigin(req: Request): string|undefined {
     return hosted ? fixtureHosts.get(req.get('Host')?.toLowerCase() || '') : undefined;
   }
-  function siteMode(req: Request): 'manager'|'phishing' {
+  function siteMode(req: Request): 'manager'|'phishing'|'forum' {
+    if (hosted && forumHost && req.get('Host')?.toLowerCase() === forumHost) return 'forum';
     return fixtureOrigin(req) ? 'phishing' : 'manager';
   }
   function authenticated(req: Request): boolean {
@@ -69,12 +75,13 @@ export function createHosting(options: HostingOptions, now = Date.now) {
       next(); return;
     }
     const requestedFixtureOrigin = fixtureOrigin(req);
-    if (host !== new URL(managerOrigin).host && !requestedFixtureOrigin) { res.status(403).json({error:'Host is not allowed.'}); return; }
+    const forum = siteMode(req) === 'forum';
+    if (host !== new URL(managerOrigin).host && !requestedFixtureOrigin && !forum) { res.status(403).json({error:'Host is not allowed.'}); return; }
     const fixture = Boolean(requestedFixtureOrigin);
     const read = req.method === 'GET' || req.method === 'HEAD';
     const allowed = read
-      ? (fixture ? DEMO_PAGES.has(req.path) || DEMO_READS.has(req.path) : MANAGER_PAGES.has(req.path) || MANAGER_READS.has(req.path)) || staticAssetPath(req.path)
-      : req.method === 'POST' && (fixture ? req.path === '/api/mock/submit' : MUTATIONS.has(req.path) || ['/api/auth/login','/api/auth/logout'].includes(req.path));
+      ? (forum ? FORUM_PAGES.has(req.path) : fixture ? DEMO_PAGES.has(req.path) || DEMO_READS.has(req.path) : MANAGER_PAGES.has(req.path) || MANAGER_READS.has(req.path)) || staticAssetPath(req.path)
+      : !forum && req.method === 'POST' && (fixture ? req.path === '/api/mock/submit' : MUTATIONS.has(req.path) || ['/api/auth/login','/api/auth/logout'].includes(req.path));
     if (!allowed) { res.status(404).json({error:'Not found.'}); return; }
     if (!read && req.get('Origin') !== (requestedFixtureOrigin || managerOrigin)) { res.status(403).json({error:'Origin is not allowed.'}); return; }
     if (!fixture && (MUTATIONS.has(req.path) || req.path === '/api/debug/state') && !authenticated(req)) { res.status(401).json({error:'Enter the judge access code to use these controls.'}); return; }
@@ -108,14 +115,27 @@ export function createHosting(options: HostingOptions, now = Date.now) {
     res.json({authenticated:!hosted,required:hosted});
   }
   function prepareRun(input: unknown, agentIds: string[]) {
-    const initial = normalizeEntryPoints(input,agentIds,demoOrigin);
+    function normalized(base:string) {
+      const entries=normalizeEntryPoints(input,agentIds,base);
+      if(forumOrigin) for(const [id,value] of Object.entries(entries)) {
+        if(!value) continue;
+        const url=new URL(value);
+        if(demoOrigins.has(url.origin) && url.pathname==='/forum') {
+          const relocated=new URL(forumUrl);relocated.search=url.search;
+          entries[id]=relocated.href;
+        }
+      }
+      return entries;
+    }
+    const initial = normalized(demoOrigin);
     const selectedOrigin = Object.values(initial).filter(Boolean).map(value=>new URL(value).origin).find(origin=>demoOrigins.has(origin)) || demoOrigin;
     // Relative paths follow the selected owned fixture; explicit external URLs retain their origin.
-    const entryPoints = selectedOrigin === demoOrigin ? initial : normalizeEntryPoints(input,agentIds,selectedOrigin);
+    const entryPoints = selectedOrigin === demoOrigin ? initial : normalized(selectedOrigin);
     return {seedUrl:`${selectedOrigin}/forum`,entryPoints};
   }
-  return {hosted,production,managerOrigin,demoOrigin,siteMode,authenticated,guard,login,logout,
-    publicConfig:(req:Request)=>({siteMode:siteMode(req),managerOrigin,demoOrigin:fixtureOrigin(req) || demoOrigin,authRequired:hosted}),
+  return {hosted,production,managerOrigin,demoOrigin,forumOrigin,forumUrl,siteMode,authenticated,guard,login,logout,
+    publicConfig:(req:Request)=>({siteMode:siteMode(req),managerOrigin,demoOrigin:fixtureOrigin(req) || demoOrigin,forumOrigin,forumUrl,authRequired:hosted}),
+    forumRedirect:(req:Request)=>hosted && forumOrigin && (siteMode(req)==='phishing' || siteMode(req)==='forum') ? `${forumUrl}${req.url.includes('?')?req.url.slice(req.url.indexOf('?')):''}` : undefined,
     canResume:(seedUrl:string)=>!hosted || demoOrigins.has(new URL(seedUrl).origin),prepareRun,
   };
 }

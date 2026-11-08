@@ -25,8 +25,9 @@ services:
       PORT: "3210"
       WEBHOOK_PORT: "3211"
       MANAGER_PUBLIC_ORIGIN: https://phoney.desmos.help
-      DEMO_PUBLIC_ORIGIN: https://phish.popsicle.space
-      DEMO_PUBLIC_ALIASES: https://bank.desmos.help
+      DEMO_PUBLIC_ORIGIN: https://bank.desmos.help
+      FORUM_PUBLIC_ORIGIN: https://forum.desmos.help
+      DEMO_PUBLIC_ALIASES: https://phish.popsicle.space
       DOTENV_CONFIG_PATH: /run/secrets/demo.env
       NODE_OPTIONS: --max-old-space-size=768
     volumes:

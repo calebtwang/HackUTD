@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { canonicalDemoUrl, EMPTY_STATE, PERSONAS, type DemoState, type Site } from '../shared/contracts';
-import { LEASE_MS, transition, type PrivateState } from '../spacetimedb/src/logic';
+import { backendReaderAllowed, collectorPhoneRows, LEASE_MS, transition, type PrivateState } from '../spacetimedb/src/logic';
+import { desiredJobTimers, releaseJobTimer } from '../spacetimedb/src/scheduling';
 
 const secret = 'test-only-worker-secret-123456789';
 const base = 'http://127.0.0.1:3210';
@@ -14,7 +15,13 @@ function fixture(entryPoints: Record<string,string> = entries) {
     // Reducer failures roll back the full transaction, including private state.
     const next = structuredClone(state); const nextAuth = structuredClone(auth);
     transition(next, nextAuth, { sender, now, random: () => 0.5, uuid: () => `event-${++sequence}` }, action, input);
+    desiredJobTimers(next,now);
     state = next; auth = nextAuth;
+  }
+  function tick() {
+    const next=structuredClone(state);
+    for(const timer of desiredJobTimers(next,now)) releaseJobTimer(next,timer,now);
+    state=next;
   }
   const personas = PERSONAS.map((p, i) => ({ ...p, phone: `DEMO-00${i + 1}` }));
   dispatch('owner', 'configure', { personas, workerSecret: secret });
@@ -31,7 +38,7 @@ function fixture(entryPoints: Record<string,string> = entries) {
   const complete = (who: string,id='site-1') => dispatch(who,'complete_job',{runId:'run-1',agentId:who,jobId:`run-1:${id}:${who}`,receiptId:`run-1:${id}:${who}`});
   const scanned = (who: string) => dispatch(who,'discovery_complete',{runId:'run-1',agentId:who});
   const submit = (who: string,id='site-1') => {claim(who,id);accept(who,id);complete(who,id);};
-  return {dispatch,personas,start,site,discover,claim,accept,publish,complete,scanned,submit,state:()=>state,auth:()=>auth,time:(value:number)=>{now=value;}};
+  return {dispatch,personas,start,site,discover,claim,accept,publish,complete,scanned,submit,tick,state:()=>state,auth:()=>auth,time:(value:number)=>{now=value;}};
 }
 
 test('owner and per-worker identities protect configuration, receipts, jobs and scan completion',()=>{
@@ -87,7 +94,7 @@ test('either agent can discover and publish; original receipt creates one replay
     assert.equal(f.state().sites[0].discoveredBy,who);assert.equal(f.state().jobs[0].agentId,who);
     assert.throws(()=>f.publish(other),/original discoverer/);assert.throws(()=>f.publish(who),/accepted before broadcasting/);
     assert.throws(()=>f.accept(who),/Claim the job/);f.claim(who);f.accept(who);f.publish(who);
-    const jobs=structuredClone(f.state().jobs);assert.equal(jobs.length,2);assert.equal(jobs.find(j=>j.agentId===other)!.dueAt,8500);
+    const jobs=structuredClone(f.state().jobs);assert.equal(jobs.length,2);assert.equal(jobs.find(j=>j.agentId===other)!.dueAt,8500);assert.equal(jobs.find(j=>j.agentId===other)!.status,'scheduled');
     f.time(40_000);f.publish(who);assert.deepEqual(f.state().jobs,jobs);
     assert.equal('marker' in f.state().submissions[0],false);
   }
@@ -132,7 +139,7 @@ test('leases serialize races, expire for recovery, and preserve idempotent accep
   const f=fixture();f.discover();f.claim('scout');
   assert.throws(()=>f.claim('scout'),/active lease/);
   assert.throws(()=>f.dispatch('finch','claim_job',{runId:'run-1',agentId:'scout',jobId:'run-1:site-1:scout'}),/worker identity/);
-  f.accept('scout');f.time(1000+LEASE_MS+1);f.claim('scout');f.accept('scout');
+  f.accept('scout');f.time(1000+LEASE_MS+1);assert.throws(()=>f.claim('scout'),/database scheduler/);f.tick();f.claim('scout');f.accept('scout');
   assert.equal(f.state().jobs[0].leaseUntil,1000+LEASE_MS*2+1);assert.equal(f.state().submissions.length,1);
   f.complete('scout');f.publish();assert.equal(f.state().jobs[0].receiptId,'run-1:site-1:scout');
 });
@@ -140,7 +147,8 @@ test('leases serialize races, expire for recovery, and preserve idempotent accep
 test('blank-entry peer receives delayed jobs and replay does not end the ongoing run',()=>{
   const f=fixture({scout:'',finch:`${base}/forum`});f.discover('finch');f.submit('finch');f.publish('finch');
   assert.throws(()=>f.claim('scout'),/not due/);assert.throws(()=>f.complete('scout'),/acceptance receipt/);
-  f.scanned('finch');assert.equal(f.state().run?.status,'running');f.time(20_000);f.submit('scout');
+  f.scanned('finch');assert.equal(f.state().run?.status,'running');f.time(20_000);
+  assert.throws(()=>f.claim('scout'),/database scheduler/);f.tick();f.submit('scout');
   assert.equal(f.state().run?.status,'running');assert.equal(f.state().submissions.length,2);
   f.accept('scout');f.complete('scout');f.publish('finch');f.scanned('finch');
   f.dispatch('owner','start_run',{runId:'run-1'});assert.equal(f.state().run?.status,'running');assert.equal(f.state().submissions.length,2);
@@ -148,10 +156,10 @@ test('blank-entry peer receives delayed jobs and replay does not end the ongoing
 });
 
 test('finished scans and all current receipts leave the run open for later sites',()=>{
-  const f=fixture();f.discover('scout');f.submit('scout');f.publish('scout');f.time(20_000);f.submit('finch');
+  const f=fixture();f.discover('scout');f.submit('scout');f.publish('scout');f.time(20_000);f.tick();f.submit('finch');
   assert.equal(f.state().run?.status,'running');f.scanned('scout');assert.equal(f.state().run?.status,'running');
   f.discover('finch',f.site('site-2',`${base}/second`));f.submit('finch','site-2');f.publish('finch','site-2');f.scanned('finch');
-  assert.equal(f.state().run?.status,'running');assert.equal(f.state().jobs.length,4);f.time(40_000);f.submit('scout','site-2');
+  assert.equal(f.state().run?.status,'running');assert.equal(f.state().jobs.length,4);f.time(40_000);f.tick();f.submit('scout','site-2');
   assert.equal(f.state().run?.status,'running');assert.equal(f.state().submissions.length,4);
   assert.equal(f.state().events.some(e=>e.kind==='complete'),false);
   f.discover('scout',f.site('site-3',`${base}/third`));assert.equal(f.state().sites.length,3);assert.equal(f.state().run?.discoveryCompleteIds?.includes('scout'),false);
@@ -160,7 +168,7 @@ test('finished scans and all current receipts leave the run open for later sites
 test('simultaneous distinct discoveries preserve every receipt without auto-stopping',()=>{
   const f=fixture();f.discover('scout');f.discover('finch',f.site('site-2',`${base}/second`));
   f.scanned('scout');f.scanned('finch');f.submit('scout');f.submit('finch','site-2');
-  assert.equal(f.state().run?.status,'running');f.publish('scout');f.publish('finch','site-2');f.time(20_000);
+  assert.equal(f.state().run?.status,'running');f.publish('scout');f.publish('finch','site-2');f.time(20_000);f.tick();
   f.submit('finch');assert.equal(f.state().run?.status,'running');f.submit('scout','site-2');assert.equal(f.state().run?.status,'running');
 });
 
@@ -169,6 +177,23 @@ test('empty repeated scans do not stop or spam events; explicit stop and reset r
   assert.equal(empty.state().events.filter(e=>e.kind==='discovery_complete').length,2);empty.discover('scout');empty.scanned('scout');assert.equal(empty.state().events.filter(e=>e.kind==='discovery_complete').length,3);
   const f=fixture();f.discover();f.claim('scout');f.dispatch('owner','stop_run',{});assert.throws(()=>f.accept('scout'),/not active/);
   assert.throws(()=>f.scanned('scout'),/not active/);f.dispatch('owner','reset',{});assert.throws(()=>f.accept('scout'),/another run/);assert.equal(f.state().submissions.length,0);
+});
+
+test('backend readers require an owner or registered worker and collector rows expose only receipt phones',()=>{
+  const f=fixture();
+  assert.equal(backendReaderAllowed(f.auth(),'owner'),true);
+  assert.equal(backendReaderAllowed(f.auth(),'scout'),true);
+  assert.equal(backendReaderAllowed(f.auth(),'finch'),true);
+  assert.equal(backendReaderAllowed(f.auth(),'visitor'),false);
+  const auth={...f.auth(),workers:{}};assert.equal(backendReaderAllowed(auth,'scout'),false);
+  const rows=[
+    {data:JSON.stringify({phone:'+12025550101',name:'Mara',secret:'not public'})},
+    {data:JSON.stringify({phone:'+12025550101'})},{data:JSON.stringify({phone:'+12025550102'})},
+    {data:JSON.stringify({phone:'DEMO-SCOUT'})},{data:JSON.stringify({phone:'+1234567'})},
+    {data:'null'},{data:'invalid json'},
+  ];
+  assert.deepEqual(collectorPhoneRows(rows),[{phone:'+12025550101'},{phone:'+12025550102'}]);
+  assert.deepEqual(collectorPhoneRows([]),[]);
 });
 
 const openPhishFeed='https://raw.githubusercontent.com/openphish/public_feed/refs/heads/main/feed.txt';

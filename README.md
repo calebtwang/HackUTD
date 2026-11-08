@@ -10,13 +10,21 @@ Public entry points can also be plain-text lists with one URL per line. For exam
 
 ## What is implemented
 
-- A fake forum, two-field callback form, benign comparison pages, and an admin page listing actual submitted phone numbers only. The manager's Sites table shows URLs and form instructions; submission receipts appear on `/debug`.
+- A fake forum, two-field callback form, benign comparison pages, and an admin page listing fixed fictional starter numbers plus accepted submission numbers. Starter numbers are display fixtures, never database receipts. The manager's Sites table shows URLs and form instructions; submission receipts appear on `/debug`.
 - Two browser workers with separate database identities. Both can discover from an entry point and receive shared sites through real SpacetimeDB subscriptions. Leaving an entry point blank makes that agent wait for shared sites.
 - Database-owned authorization, verified receipts, randomized schedules, job leases, and idempotent submissions.
 - Two explicitly labeled discovery modes: **Start** uses a configured text-model API; **Run rehearsal** on `/debug` uses fixed fixture rules. Owned-page submissions and database coordination are real in both modes. Phone readiness is tracked separately.
 - Photon-to-ElevenLabs SIP setup helpers, two fictional voice personas, provisional call observations, and signed post-call transcripts. Phone numbers, provider credentials, routing, and a successful inbound test are separate setup requirements.
 
 Mara retains the internal ID `scout`, and Otis retains `finch` so existing provider mappings keep working. These IDs do not assign different roles. New or reconfigured phone lines must pass a call test before their readiness flags are enabled.
+
+## Backend architecture
+
+SpacetimeDB owns the shared application state and its transaction rules: worker identities, run lifecycle, site deduplication, form-receipt validation, delayed jobs, claims, leases, and accepted call records. Workers receive committed changes through subscriptions. Native scheduling adds database-driven job releases and lease recovery; private raw tables and identity-checked backend views enforce read permissions. These changes passed local migration, scheduler, privacy, and browser-flow checks, then were published to Maincloud without deleting existing data. The updated VM application is healthy, with the active run and provider mappings preserved. See [the responsibility map and verification results](docs/SPACETIME.md).
+
+Node still serves HTTP pages and access-code sessions, supervises the browser workers, and connects form requests to reducers. Node workers perform browser actions, guarded public-page fetches, and external model requests. The Node or Cloudflare webhook adapter verifies provider signatures and interprets call transcripts before submitting validated events. Photon and ElevenLabs provide the phone and voice services.
+
+This integration adapts scheduled-reducer and native-view patterns from [the `spacetime-optimized` branch](https://github.com/calebtwang/HackUTD/tree/spacetime-optimized) to the real two-agent workflow. It does not generate simulated calls or claim measured scam prevention. The [official Spacetime track](https://zeroday.hackutd.co/) requires a public GitHub repository and the majority of the backend to be built on Spacetime; the linked responsibility map explains the project's use of it.
 
 ## Run
 
@@ -34,7 +42,7 @@ scripts/start-demo.sh
 
 Open [the demo](http://127.0.0.1:3210). On macOS, **Start Demo.command** runs the same launcher. Keep its terminal open. The database must already be running, or the app must point at your published Maincloud database.
 
-For operation while the laptop is off, use the [VM hosting guide](docs/HOSTING.md). The hosted manager is publicly viewable; its access code unlocks entry-point editing, Start/Stop/Reset, and `/debug`. The separate fixture domain opens the fictional banking form at `/`, with its forum at `/forum` and number list at `/admin`. Fixture pages never load manager snapshots or call transcripts. Local development remains trusted and needs no access code.
+For operation while the laptop is off, use the [VM hosting guide](docs/HOSTING.md). The hosted manager is publicly viewable; its access code unlocks entry-point editing, Start/Stop/Reset, and `/debug`. The forum is at `https://forum.desmos.help/`; the fictional bank form is at `https://bank.desmos.help/phishing` and its number list at `/admin`. Bank `/forum` links redirect to the separate forum. Fixture pages never load manager snapshots or call transcripts. Local development remains trusted and needs no access code.
 
 Credentials and connection settings belong in the project-root `.env`, using `.env.example` as the template. They load at startup, so restart after changes. `.local/` retains resource mappings, tested-readiness flags, runtime state, and any legacy fallback copies. Both are ignored by Git; the app has no credential-entry page.
 
@@ -43,9 +51,9 @@ Set each agent's **Entry point**, then click **Start**. Mara defaults to `http:/
 | Page | Purpose |
 | --- | --- |
 | `/` | Agent entry points, controls, and live Sites table |
-| `/forum` | Owned forum linking the example pages |
+| `/forum` | Local owned forum; hosted bank route redirects to `forum.desmos.help` |
 | `/phishing` | Fictional banking form with Full name and Phone number |
-| `/admin` | Received callable-format numbers, one per line |
+| `/admin` | Fixed fictional starter numbers plus accepted receipt numbers; updates automatically |
 | `/debug` | Connections, rehearsal, receipts, activity, and call diagnostics |
 | `/demo/benign-news` | Harmless library announcement |
 | `/demo/benign-event` | Harmless seed-swap announcement |

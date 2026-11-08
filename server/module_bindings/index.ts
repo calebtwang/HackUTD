@@ -39,113 +39,75 @@ import DispatchReducer from "./dispatch_reducer";
 // Import all procedure arg schemas
 
 // Import all table schema definitions
-import AgentRow from "./agent_table";
-import CallRow from "./call_table";
-import DemoEventRow from "./demo_event_table";
-import DemoRunRow from "./demo_run_table";
-import JobRow from "./job_table";
-import SiteRow from "./site_table";
-import SubmissionRow from "./submission_table";
+import BackendAgentRow from "./backend_agent_table";
+import BackendCallRow from "./backend_call_table";
+import BackendDemoEventRow from "./backend_demo_event_table";
+import BackendDemoRunRow from "./backend_demo_run_table";
+import BackendJobRow from "./backend_job_table";
+import BackendSiteRow from "./backend_site_table";
+import BackendSubmissionRow from "./backend_submission_table";
+import CollectorNumbersRow from "./collector_numbers_table";
 
 /** Type-only namespace exports for generated type groups. */
 
 /** The schema information for all tables in this module. This is defined the same was as the tables would have been defined in the server. */
 const tablesSchema = __schema({
-  agent: __table({
-    name: 'agent',
+  backendAgent: __table({
+    name: 'backend_agent',
     indexes: [
-      { accessor: 'id', name: 'agent_id_idx_btree', algorithm: 'btree', columns: [
-        'id',
-      ] },
     ],
     constraints: [
-      { name: 'agent_id_key', constraint: 'unique', columns: ['id'] },
     ],
-  }, AgentRow),
-  call: __table({
-    name: 'call',
+  }, BackendAgentRow),
+  backendCall: __table({
+    name: 'backend_call',
     indexes: [
-      { accessor: 'id', name: 'call_id_idx_btree', algorithm: 'btree', columns: [
-        'id',
-      ] },
-      { accessor: 'runId', name: 'call_run_id_idx_btree', algorithm: 'btree', columns: [
-        'runId',
-      ] },
     ],
     constraints: [
-      { name: 'call_id_key', constraint: 'unique', columns: ['id'] },
     ],
-  }, CallRow),
-  demoEvent: __table({
-    name: 'demo_event',
+  }, BackendCallRow),
+  backendDemoEvent: __table({
+    name: 'backend_demo_event',
     indexes: [
-      { accessor: 'id', name: 'demo_event_id_idx_btree', algorithm: 'btree', columns: [
-        'id',
-      ] },
-      { accessor: 'runId', name: 'demo_event_run_id_idx_btree', algorithm: 'btree', columns: [
-        'runId',
-      ] },
     ],
     constraints: [
-      { name: 'demo_event_id_key', constraint: 'unique', columns: ['id'] },
     ],
-  }, DemoEventRow),
-  demoRun: __table({
-    name: 'demo_run',
+  }, BackendDemoEventRow),
+  backendDemoRun: __table({
+    name: 'backend_demo_run',
     indexes: [
-      { accessor: 'id', name: 'demo_run_id_idx_btree', algorithm: 'btree', columns: [
-        'id',
-      ] },
     ],
     constraints: [
-      { name: 'demo_run_id_key', constraint: 'unique', columns: ['id'] },
     ],
-  }, DemoRunRow),
-  job: __table({
-    name: 'job',
+  }, BackendDemoRunRow),
+  backendJob: __table({
+    name: 'backend_job',
     indexes: [
-      { accessor: 'agentId', name: 'job_agent_id_idx_btree', algorithm: 'btree', columns: [
-        'agentId',
-      ] },
-      { accessor: 'id', name: 'job_id_idx_btree', algorithm: 'btree', columns: [
-        'id',
-      ] },
-      { accessor: 'runId', name: 'job_run_id_idx_btree', algorithm: 'btree', columns: [
-        'runId',
-      ] },
     ],
     constraints: [
-      { name: 'job_id_key', constraint: 'unique', columns: ['id'] },
     ],
-  }, JobRow),
-  site: __table({
-    name: 'site',
+  }, BackendJobRow),
+  backendSite: __table({
+    name: 'backend_site',
     indexes: [
-      { accessor: 'id', name: 'site_id_idx_btree', algorithm: 'btree', columns: [
-        'id',
-      ] },
-      { accessor: 'runId', name: 'site_run_id_idx_btree', algorithm: 'btree', columns: [
-        'runId',
-      ] },
     ],
     constraints: [
-      { name: 'site_id_key', constraint: 'unique', columns: ['id'] },
     ],
-  }, SiteRow),
-  submission: __table({
-    name: 'submission',
+  }, BackendSiteRow),
+  backendSubmission: __table({
+    name: 'backend_submission',
     indexes: [
-      { accessor: 'id', name: 'submission_id_idx_btree', algorithm: 'btree', columns: [
-        'id',
-      ] },
-      { accessor: 'runId', name: 'submission_run_id_idx_btree', algorithm: 'btree', columns: [
-        'runId',
-      ] },
     ],
     constraints: [
-      { name: 'submission_id_key', constraint: 'unique', columns: ['id'] },
     ],
-  }, SubmissionRow),
+  }, BackendSubmissionRow),
+  collectorNumbers: __table({
+    name: 'collector_numbers',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, CollectorNumbersRow),
 });
 
 /** The schema information for all reducers in this module. This is defined the same way as the reducers would have been defined in the server, except the body of the reducer is omitted in code generation. */
@@ -157,22 +119,111 @@ const reducersSchema = __reducers(
 const proceduresSchema = __procedures(
 );
 
+type __SchemaWithTableAccessorAliases = Omit<typeof tablesSchema.schemaType, "tables"> & {
+  tables: typeof tablesSchema.schemaType.tables & {
+    /** @deprecated Use `backendAgent` instead. This alias will be removed in the next major version. */
+    readonly "backend_agent": Omit<typeof tablesSchema.schemaType.tables["backendAgent"], "accessorName"> & { readonly accessorName: "backend_agent" };
+    /** @deprecated Use `backendCall` instead. This alias will be removed in the next major version. */
+    readonly "backend_call": Omit<typeof tablesSchema.schemaType.tables["backendCall"], "accessorName"> & { readonly accessorName: "backend_call" };
+    /** @deprecated Use `backendDemoEvent` instead. This alias will be removed in the next major version. */
+    readonly "backend_demo_event": Omit<typeof tablesSchema.schemaType.tables["backendDemoEvent"], "accessorName"> & { readonly accessorName: "backend_demo_event" };
+    /** @deprecated Use `backendDemoRun` instead. This alias will be removed in the next major version. */
+    readonly "backend_demo_run": Omit<typeof tablesSchema.schemaType.tables["backendDemoRun"], "accessorName"> & { readonly accessorName: "backend_demo_run" };
+    /** @deprecated Use `backendJob` instead. This alias will be removed in the next major version. */
+    readonly "backend_job": Omit<typeof tablesSchema.schemaType.tables["backendJob"], "accessorName"> & { readonly accessorName: "backend_job" };
+    /** @deprecated Use `backendSite` instead. This alias will be removed in the next major version. */
+    readonly "backend_site": Omit<typeof tablesSchema.schemaType.tables["backendSite"], "accessorName"> & { readonly accessorName: "backend_site" };
+    /** @deprecated Use `backendSubmission` instead. This alias will be removed in the next major version. */
+    readonly "backend_submission": Omit<typeof tablesSchema.schemaType.tables["backendSubmission"], "accessorName"> & { readonly accessorName: "backend_submission" };
+    /** @deprecated Use `collectorNumbers` instead. This alias will be removed in the next major version. */
+    readonly "collector_numbers": Omit<typeof tablesSchema.schemaType.tables["collectorNumbers"], "accessorName"> & { readonly accessorName: "collector_numbers" };
+  };
+};
+
 /** The remote SpacetimeDB module schema, both runtime and type information. */
 const REMOTE_MODULE = {
   versionInfo: {
     cliVersion: "2.14.1" as const,
   },
-  tables: tablesSchema.schemaType.tables,
+  tables: tablesSchema.schemaType.tables as __SchemaWithTableAccessorAliases["tables"],
   reducers: reducersSchema.reducersType.reducers,
   ...proceduresSchema,
 } satisfies __RemoteModule<
-  typeof tablesSchema.schemaType,
+  __SchemaWithTableAccessorAliases,
   typeof reducersSchema.reducersType,
   typeof proceduresSchema
 >;
 
+const tableAccessorAliases = {
+  "backend_agent": "backendAgent",
+  "backend_call": "backendCall",
+  "backend_demo_event": "backendDemoEvent",
+  "backend_demo_run": "backendDemoRun",
+  "backend_job": "backendJob",
+  "backend_site": "backendSite",
+  "backend_submission": "backendSubmission",
+  "collector_numbers": "collectorNumbers",
+} as const;
+
+function __withTableAccessorAliases<T extends object>(target: T, freeze = false): T {
+  const out = Object.create(Object.getPrototypeOf(target)) as T & Record<string, unknown>;
+  Object.defineProperties(out, Object.getOwnPropertyDescriptors(target));
+  for (const [deprecatedAccessor, targetAccessor] of Object.entries(tableAccessorAliases)) {
+    if (deprecatedAccessor in out) {
+      continue;
+    }
+    Object.defineProperty(out, deprecatedAccessor, {
+      enumerable: true,
+      configurable: false,
+      get: () => out[targetAccessor],
+    });
+  }
+  return freeze ? Object.freeze(out) : out;
+}
+
+type __DbViewBase = __DbConnectionImpl<typeof REMOTE_MODULE>["db"];
+export type DbView = __DbViewBase & {
+  /** @deprecated Use `backendAgent` instead. This alias will be removed in the next major version. */
+  readonly "backend_agent": __DbViewBase["backendAgent"];
+  /** @deprecated Use `backendCall` instead. This alias will be removed in the next major version. */
+  readonly "backend_call": __DbViewBase["backendCall"];
+  /** @deprecated Use `backendDemoEvent` instead. This alias will be removed in the next major version. */
+  readonly "backend_demo_event": __DbViewBase["backendDemoEvent"];
+  /** @deprecated Use `backendDemoRun` instead. This alias will be removed in the next major version. */
+  readonly "backend_demo_run": __DbViewBase["backendDemoRun"];
+  /** @deprecated Use `backendJob` instead. This alias will be removed in the next major version. */
+  readonly "backend_job": __DbViewBase["backendJob"];
+  /** @deprecated Use `backendSite` instead. This alias will be removed in the next major version. */
+  readonly "backend_site": __DbViewBase["backendSite"];
+  /** @deprecated Use `backendSubmission` instead. This alias will be removed in the next major version. */
+  readonly "backend_submission": __DbViewBase["backendSubmission"];
+  /** @deprecated Use `collectorNumbers` instead. This alias will be removed in the next major version. */
+  readonly "collector_numbers": __DbViewBase["collectorNumbers"];
+};
+
+type __TablesBase = __QueryBuilder<typeof tablesSchema.schemaType>;
+export type Tables = __TablesBase & {
+  /** @deprecated Use `backendAgent` instead. This alias will be removed in the next major version. */
+  readonly "backend_agent": __TablesBase["backendAgent"];
+  /** @deprecated Use `backendCall` instead. This alias will be removed in the next major version. */
+  readonly "backend_call": __TablesBase["backendCall"];
+  /** @deprecated Use `backendDemoEvent` instead. This alias will be removed in the next major version. */
+  readonly "backend_demo_event": __TablesBase["backendDemoEvent"];
+  /** @deprecated Use `backendDemoRun` instead. This alias will be removed in the next major version. */
+  readonly "backend_demo_run": __TablesBase["backendDemoRun"];
+  /** @deprecated Use `backendJob` instead. This alias will be removed in the next major version. */
+  readonly "backend_job": __TablesBase["backendJob"];
+  /** @deprecated Use `backendSite` instead. This alias will be removed in the next major version. */
+  readonly "backend_site": __TablesBase["backendSite"];
+  /** @deprecated Use `backendSubmission` instead. This alias will be removed in the next major version. */
+  readonly "backend_submission": __TablesBase["backendSubmission"];
+  /** @deprecated Use `collectorNumbers` instead. This alias will be removed in the next major version. */
+  readonly "collector_numbers": __TablesBase["collectorNumbers"];
+};
+
 /** The tables available in this remote SpacetimeDB module. Each table reference doubles as a query builder. */
-export const tables: __QueryBuilder<typeof tablesSchema.schemaType> = __makeQueryBuilder(tablesSchema.schemaType);
+const tablesBase: __TablesBase = __makeQueryBuilder(tablesSchema.schemaType);
+export const tables: Tables = __withTableAccessorAliases(tablesBase, true) as Tables;
 
 /** The reducers available in this remote SpacetimeDB module. */
 export const reducers = __convertToAccessorMap(reducersSchema.reducersType.reducers);
@@ -181,13 +232,13 @@ export const reducers = __convertToAccessorMap(reducersSchema.reducersType.reduc
 export const procedures = __convertToAccessorMap(proceduresSchema.procedures);
 
 /** The context type returned in callbacks for all possible events. */
-export type EventContext = __EventContextInterface<typeof REMOTE_MODULE>;
+export type EventContext = Omit<__EventContextInterface<typeof REMOTE_MODULE>, "db"> & { db: DbView };
 /** The context type returned in callbacks for reducer events. */
-export type ReducerEventContext = __ReducerEventContextInterface<typeof REMOTE_MODULE>;
+export type ReducerEventContext = Omit<__ReducerEventContextInterface<typeof REMOTE_MODULE>, "db"> & { db: DbView };
 /** The context type returned in callbacks for subscription events. */
-export type SubscriptionEventContext = __SubscriptionEventContextInterface<typeof REMOTE_MODULE>;
+export type SubscriptionEventContext = Omit<__SubscriptionEventContextInterface<typeof REMOTE_MODULE>, "db"> & { db: DbView };
 /** The context type returned in callbacks for error events. */
-export type ErrorContext = __ErrorContextInterface<typeof REMOTE_MODULE>;
+export type ErrorContext = Omit<__ErrorContextInterface<typeof REMOTE_MODULE>, "db"> & { db: DbView };
 /** The subscription handle type to manage active subscriptions created from a {@link SubscriptionBuilder}. */
 export type SubscriptionHandle = __SubscriptionHandleImpl<typeof REMOTE_MODULE>;
 
@@ -199,6 +250,13 @@ export class DbConnectionBuilder extends __DbConnectionBuilder<DbConnection> {}
 
 /** The typed database connection to manage connections to the remote SpacetimeDB instance. This class has type information specific to the generated module. */
 export class DbConnection extends __DbConnectionImpl<typeof REMOTE_MODULE> {
+  declare db: DbView;
+
+  constructor(config: __DbConnectionConfig<typeof REMOTE_MODULE>) {
+    super(config);
+    this.db = __withTableAccessorAliases(this.db) as DbView;
+  }
+
   /** Creates a new {@link DbConnectionBuilder} to configure and connect to the remote SpacetimeDB instance. */
   static builder = (): DbConnectionBuilder => {
     return new DbConnectionBuilder(REMOTE_MODULE, (config: __DbConnectionConfig<typeof REMOTE_MODULE>) => new DbConnection(config));

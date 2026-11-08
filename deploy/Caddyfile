@@ -12,7 +12,7 @@ phoney.desmos.help {
 	}
 }
 
-phish.popsicle.space, bank.desmos.help {
+phish.popsicle.space, bank.desmos.help, forum.desmos.help {
 	encode zstd gzip
 	reverse_proxy app:3210
 }

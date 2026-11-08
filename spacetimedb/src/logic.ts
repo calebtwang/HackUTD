@@ -5,6 +5,22 @@ export type PrivateState = { admin: string; workerSecret: string; workers: Recor
 export type Context = { sender: string; now: number; random: () => number; uuid: () => string };
 export const LEASE_MS = 60_000;
 
+export function backendReaderAllowed(auth: PrivateState, sender: string): boolean {
+  return sender===auth.admin || Object.values(auth.workers).includes(sender);
+}
+
+/** Projection of accepted receipts only; fixture starter numbers stay outside the DB. */
+export function collectorPhoneRows(rows: Iterable<{data:string}>): {phone:string}[] {
+  const phones=new Set<string>();
+  for(const row of rows) {
+    try {
+      const phone=(JSON.parse(row.data) as {phone?:unknown}).phone;
+      if(typeof phone==='string' && /^\+[1-9]\d{7,14}$/.test(phone)) phones.add(phone);
+    } catch { /* A malformed legacy record must not break the collector view. */ }
+  }
+  return [...phones].sort().map(phone=>({phone}));
+}
+
 function fail(message: string): never { throw new Error(message); }
 function object(value: unknown): Record<string, any> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) fail('Expected an object');
@@ -308,7 +324,7 @@ export function transition(state: DemoState, auth: PrivateState, ctx: Context, a
       const id = `${runId}:${siteId}:${peer.id}`;
       if (state.jobs.some(job => job.id === id)) continue;
       const dueAt = ctx.now + 5000 + Math.floor(ctx.random() * 5001);
-      state.jobs.push({ id, runId, siteId, agentId: peer.id, dueAt, status: 'pending', leaseUntil: 0, receiptId: '' });
+      state.jobs.push({ id, runId, siteId, agentId: peer.id, dueAt, status: 'scheduled', leaseUntil: 0, receiptId: '' });
     }
     log(state, ctx, agentId, 'recipe_shared', 'Verified form recipe shared through SpacetimeDB; other agents’ submissions scheduled.');
     return;
@@ -321,6 +337,7 @@ export function transition(state: DemoState, auth: PrivateState, ctx: Context, a
     if (action === 'claim_job') {
       if (ctx.now < j.dueAt) fail('Job is not due yet');
       if (j.status === 'claimed' && j.leaseUntil > ctx.now) fail('Job has an active lease');
+      if (j.status !== 'pending') fail('Wait for the database scheduler to release this job');
       j.status = 'claimed'; j.leaseUntil = ctx.now + LEASE_MS;
     } else {
       if (p.receiptId !== j.id || !state.submissions.some(x => x.id === p.receiptId)) fail('A verified acceptance receipt is required');

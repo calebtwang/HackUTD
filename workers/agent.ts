@@ -6,7 +6,7 @@ import { connectStore } from '../server/store.ts';
 import { canonicalDemoUrl, type Agent, type DemoState, type Job, type Site, type Submission } from '../shared/contracts.ts';
 import { analyzePage, analyzePublicPage } from './model.ts';
 import { inspectDemoPage, openDemoBrowser } from './browser.ts';
-import { allowedUrl, canonicalPageUrl, ownedPageLinks, submissionUrl, validateRecipe, publicInspectionNeeded, observedFormDetails, type Analysis, type ReadOnlyAnalysis, type PageDescription } from './safety.ts';
+import { allowedUrl, canonicalPageUrl, canonicalDiscoveryUrl, configuredReadOrigins, ownedPageLinks, submissionUrl, validateRecipe, publicInspectionNeeded, observedFormDetails, type Analysis, type ReadOnlyAnalysis, type PageDescription } from './safety.ts';
 import { fetchPublicPage, inspectPublicPage, publicPageUrl } from './public-pages.ts';
 
 type WorkerId = 'scout' | 'finch';
@@ -47,6 +47,7 @@ function safeError(error: unknown): string {
 async function run(): Promise<void> {
   const config = options();
   const { agentId, runId, base, mode } = config;
+  const readOrigins = configuredReadOrigins(process.env.FORUM_PUBLIC_ORIGIN);
   if (!process.env.WORKER_SECRET) throw new Error('WORKER_SECRET is required to register a worker.');
   const localDir = resolve('.local');
   const host = (process.env.SPACETIMEDB_HOST || 'http://127.0.0.1:3000').replace(/\/$/, '');
@@ -132,7 +133,7 @@ async function run(): Promise<void> {
   }
   async function browser() {
     checkActive();
-    if (!browserSession) browserSession = await openDemoBrowser(base);
+    if (!browserSession) browserSession = await openDemoBrowser(base, undefined, readOrigins);
     return browserSession.page;
   }
   async function receiptFor(siteId: string, timeout = 0): Promise<Submission | undefined> {
@@ -232,9 +233,9 @@ async function run(): Promise<void> {
         const page = await browser();
         await page.goto(candidate, { waitUntil: 'domcontentloaded' });
         checkActive();
-        description = await inspectDemoPage(page, base);
+        description = await inspectDemoPage(page, base, readOrigins);
         const observedLinks = await page.locator('[data-crawl-content] a[href]').evaluateAll(elements => elements.slice(0, 500).map(element => (element as HTMLAnchorElement).href));
-        links = ownedPageLinks(observedLinks, base);
+        links = ownedPageLinks(observedLinks, base, readOrigins);
       }
       if (links.length) refreshable.add(candidate);
       if (isUrlFeed) {
@@ -248,6 +249,10 @@ async function run(): Promise<void> {
       const before = queue.length;
       for (const link of links) enqueuePage(link);
       if (queue.length > before) await log('links', `Queued ${queue.length - before} newly observed page links.`);
+      if (!publicScan && new URL(description.url).origin !== new URL(base).origin) {
+        await log('inspect', 'Read the configured forum for links. Forms on this origin are not eligible for submission.');
+        return;
+      }
       if (isUrlFeed) {
         if (reported && publicInspectionNeeded(reported)) await dispatch('inspect_site', { siteId: reported.id, inspectionStatus: 'analysis_failed', inspectionMessage: 'The reported destination was another URL feed; it was not classified as a target page.' });
         await log('inspect', 'Read a URL feed. Listed destinations will be inspected separately; the feed itself is not classified as a candidate.');
@@ -339,8 +344,8 @@ async function run(): Promise<void> {
     if (!active()) throw new Error('The requested run is not active.');
     persona();
     if (entryPoint) {
-      publicScan = new URL(entryPoint, base).origin !== new URL(base).origin;
-      entryUrl = publicScan ? canonicalDemoUrl(publicPageUrl(entryPoint).href, false) : canonicalPageUrl(entryPoint, base);
+      publicScan = ![new URL(base).origin, ...readOrigins].includes(new URL(entryPoint, base).origin);
+      entryUrl = publicScan ? canonicalDemoUrl(publicPageUrl(entryPoint).href, false) : canonicalDiscoveryUrl(entryPoint, base, readOrigins);
       startScanPass();
     }
     await log('connected', `${persona().name} connected to SpacetimeDB (${mode === 'rehearsal' ? 'explicit fixture rehearsal' : 'model discovery'}).`);
@@ -357,8 +362,9 @@ async function run(): Promise<void> {
         await log('published', 'Recovered an accepted receipt and shared the verified form instructions.');
         continue;
       }
+      // Spacetime releases delayed jobs and expired leases; workers only claim ready rows.
       const jobs = state.jobs.filter(job => job.runId === runId && job.agentId === agentId);
-      const job = jobs.filter(job => (attempts.get(job.id) ?? 0) < 2 && job.dueAt <= Date.now() && (job.status === 'pending' || (job.status === 'claimed' && job.leaseUntil <= Date.now()))).sort((a, b) => a.dueAt - b.dueAt)[0];
+      const job = jobs.filter(job => (attempts.get(job.id) ?? 0) < 2 && job.dueAt <= Date.now() && job.status === 'pending').sort((a, b) => a.dueAt - b.dueAt)[0];
       if (job) {
         const site = sites.find(site => site.id === job.siteId);
         if (!site) throw new Error('Database job refers to a missing site.');

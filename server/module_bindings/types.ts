@@ -10,11 +10,38 @@ import {
   type Infer as __Infer,
 } from "spacetimedb";
 
+export const ActiveRun = __t.object("ActiveRun", {
+  id: __t.string(),
+  runId: __t.string(),
+});
+export type ActiveRun = __Infer<typeof ActiveRun>;
+
 export const Agent = __t.object("Agent", {
   id: __t.string(),
   data: __t.string(),
 });
 export type Agent = __Infer<typeof Agent>;
+
+export const BackendAgent = __t.object("BackendAgent", {});
+export type BackendAgent = __Infer<typeof BackendAgent>;
+
+export const BackendCall = __t.object("BackendCall", {});
+export type BackendCall = __Infer<typeof BackendCall>;
+
+export const BackendDemoEvent = __t.object("BackendDemoEvent", {});
+export type BackendDemoEvent = __Infer<typeof BackendDemoEvent>;
+
+export const BackendDemoRun = __t.object("BackendDemoRun", {});
+export type BackendDemoRun = __Infer<typeof BackendDemoRun>;
+
+export const BackendJob = __t.object("BackendJob", {});
+export type BackendJob = __Infer<typeof BackendJob>;
+
+export const BackendSite = __t.object("BackendSite", {});
+export type BackendSite = __Infer<typeof BackendSite>;
+
+export const BackendSubmission = __t.object("BackendSubmission", {});
+export type BackendSubmission = __Infer<typeof BackendSubmission>;
 
 export const Call = __t.object("Call", {
   id: __t.string(),
@@ -22,6 +49,14 @@ export const Call = __t.object("Call", {
   runId: __t.string(),
 });
 export type Call = __Infer<typeof Call>;
+
+export const CollectorNumber = __t.object("CollectorNumber", {
+  phone: __t.string(),
+});
+export type CollectorNumber = __Infer<typeof CollectorNumber>;
+
+export const CollectorNumbers = __t.object("CollectorNumbers", {});
+export type CollectorNumbers = __Infer<typeof CollectorNumbers>;
 
 export const Config = __t.object("Config", {
   id: __t.string(),
@@ -50,6 +85,16 @@ export const Job = __t.object("Job", {
   dueAt: __t.f64(),
 });
 export type Job = __Infer<typeof Job>;
+
+export const JobSchedule = __t.object("JobSchedule", {
+  scheduledId: __t.u64(),
+  scheduledAt: __t.scheduleAt(),
+  jobId: __t.string(),
+  runId: __t.string(),
+  kind: __t.string(),
+  expectedAt: __t.f64(),
+});
+export type JobSchedule = __Infer<typeof JobSchedule>;
 
 export const Site = __t.object("Site", {
   id: __t.string(),

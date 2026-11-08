@@ -12,6 +12,7 @@ import { EMPTY_STATE, PERSONAS, type AppSnapshot } from '../shared/contracts.js'
 const manager='https://manager.example';
 const fixture='https://fixture.example';
 const alias='https://bank.example';
+const forum='https://forum.example';
 const code='test-only-judge-code-123456';
 const options:HostingOptions={port:3210,managerOrigin:manager,demoOrigin:fixture,judgeCode:code};
 function snapshot(): AppSnapshot {
@@ -40,6 +41,11 @@ async function harness(config:HostingOptions=options,clock=Date.now,dist?:string
   app.post('/api/mock/submit',(_req,res)=>res.json({submitted:true}));
   app.get('/health',(_req,res)=>res.json({ok:true}));
   app.get('/admin',(_req,res)=>res.type('html').send('<pre>+12025550123</pre>'));
+  app.get('/forum',(req,res,next)=>{
+    const destination=hosting.forumRedirect(req);
+    if(destination) {res.redirect(302,destination);return;}
+    next();
+  });
   if(dist) mountProductionFrontend(app,dist);
   else app.get('/{*path}',(_req,res)=>res.send('page'));
   const server=app.listen(0,'127.0.0.1');
@@ -84,6 +90,10 @@ test('hosted startup fails closed for incomplete, insecure, or ambiguous configu
     assert.throws(()=>createHosting({...options,demoAliases:[value]}));
   }
   assert.throws(()=>createHosting({port:3210,demoAliases:[alias]}));
+  for(const forumOrigin of [manager,fixture,alias,'http://forum.example','https://*.example','https://forum.example/path','https://user:pass@forum.example']) {
+    assert.throws(()=>createHosting({...options,demoAliases:[alias],forumOrigin}));
+  }
+  assert.throws(()=>createHosting({port:3210,forumOrigin:forum}));
 });
 
 test('public manager snapshot omits diagnostics and provider identifiers while preserving tested phone readiness',()=>{
@@ -130,6 +140,27 @@ test('judge sessions expire, cannot be forged, and logout immediately revokes pr
     assert.ok(!(await (await h.request('/api/state',{headers:{Cookie:cookie}})).text()).includes('PRIVATE_'));
     const nextCookie=await login(h); now+=12*60*60*1000+1;
     assert.equal((await h.request('/api/debug/state',{headers:{Cookie:nextCookie}})).status,401);
+  } finally {await h.close();}
+});
+
+test('a six-character judge code unlocks controls only through a protected session cookie',async()=>{
+  const h=await harness({...options,judgeCode:'demo42'});
+  try {
+    assert.equal((await h.request('/api/auth/login',post({code:'demo43'}))).status,401);
+    assert.equal((await h.request('/api/demo/start',post())).status,401);
+    const response=await h.request('/api/auth/login',post({code:'demo42'}));
+    assert.equal(response.status,200);
+    const cookieHeader=response.headers.get('set-cookie')!;
+    assert.match(cookieHeader,/^__Host-judge=[0-9a-f]{64};/);
+    assert.match(cookieHeader,/HttpOnly; Secure; SameSite=Strict/);
+    assert.ok(!cookieHeader.includes('demo42'));
+    const cookie=cookieHeader.split(';')[0];
+    assert.equal((await h.request('/api/demo/start',post({},manager,cookie))).status,200);
+    assert.equal((await h.request('/api/debug/state',{headers:{Cookie:cookie}})).status,200);
+    assert.equal((await h.request('/api/demo/start',post({},fixture,cookie))).status,403);
+    assert.equal((await h.request('/api/demo/start',post({},manager,'__Host-judge=demo42'))).status,401);
+    await h.request('/api/auth/logout',post({},manager,cookie));
+    assert.equal((await h.request('/api/debug/state',{headers:{Cookie:cookie}})).status,401);
   } finally {await h.close();}
 });
 
@@ -201,6 +232,57 @@ test('run ownership follows the first explicit configured fixture entry while pu
   assert.deepEqual(local.prepareRun({scout:'http://localhost:3210/forum',finch:''},ids),{
     seedUrl:'http://127.0.0.1:3210/forum',entryPoints:{scout:'http://127.0.0.1:3210/forum',finch:''},
   });
+});
+
+test('dedicated forum is read-only, links to the canonical bank, and redirects legacy forum URLs',async()=>{
+  const h=await harness({...options,demoAliases:[alias],forumOrigin:forum});
+  try {
+    const cookie=await login(h);
+    for(const route of ['/','/demo/benign-event','/demo/benign-news','/assets/index-a.js']) assert.equal((await h.request(route,{},'forum.example')).status,200);
+    for(const route of ['/phishing','/admin','/debug','/api/state','/api/events','/api/debug/state','/api/auth/status','/health']) {
+      assert.equal((await h.request(route,{headers:{Cookie:cookie}},'forum.example')).status,404,route);
+    }
+    for(const route of ['/api/mock/submit','/api/auth/login','/api/demo/start','/api/demo/stop','/api/demo/reset']) {
+      assert.equal((await h.request(route,post({code},forum,cookie),'forum.example')).status,404,route);
+    }
+    const config=await (await h.request('/api/public-config',{},'forum.example')).json();
+    assert.equal(config.siteMode,'forum');assert.equal(config.demoOrigin,fixture);
+    assert.equal(config.forumOrigin,forum);assert.equal(config.forumUrl,`${forum}/`);
+    const managerConfig=await (await h.request('/api/public-config')).json();
+    assert.equal(managerConfig.forumUrl,`${forum}/`);assert.equal(managerConfig.demoOrigin,fixture);
+    for(const host of ['fixture.example','bank.example','forum.example']) {
+      const response=await h.request('/forum?topic=credit',{},host);
+      assert.equal(response.status,302);assert.equal(response.headers.get('location'),`${forum}/?topic=credit`);
+    }
+    assert.equal((await h.request('/',{headers:{'X-Forwarded-Host':'forum.example'}},'other.example')).status,403);
+    assert.equal(h.hosting.canResume(`${forum}/`),false);
+  } finally {await h.close();}
+});
+
+test('forum discovery never changes the run submission origin or existing local forum behavior',async()=>{
+  const hosted=createHosting({...options,demoAliases:[alias],forumOrigin:forum});
+  assert.deepEqual(hosted.prepareRun({scout:`${forum}/`,finch:''},['scout','finch']),{
+    seedUrl:`${fixture}/forum`,entryPoints:{scout:`${forum}/`,finch:''},
+  });
+  for(const legacy of [`${fixture}/forum?topic=credit`,`${alias}/forum?topic=credit`,'/forum?topic=credit']) {
+    assert.deepEqual(hosted.prepareRun({scout:legacy,finch:''},['scout','finch']),{
+      seedUrl:`${fixture}/forum`,entryPoints:{scout:`${forum}/?topic=credit`,finch:''},
+    });
+  }
+  assert.deepEqual(hosted.prepareRun({scout:`${alias}/forum`,finch:`${alias}/phishing`},['scout','finch']),{
+    seedUrl:`${alias}/forum`,entryPoints:{scout:`${forum}/`,finch:`${alias}/phishing`},
+  });
+  assert.deepEqual(hosted.prepareRun({scout:'https://external.example/forum?topic=credit',finch:''},['scout','finch']),{
+    seedUrl:`${fixture}/forum`,entryPoints:{scout:'https://external.example/forum?topic=credit',finch:''},
+  });
+  assert.equal(hosted.prepareRun({scout:`${forum}/`,finch:`${alias}/phishing`},['scout','finch']).seedUrl,`${alias}/forum`);
+  const local=await harness({port:3210});
+  try {
+    const response=await local.request('/forum',{},'127.0.0.1:3210');
+    assert.equal(response.status,200);assert.equal(response.headers.get('location'),null);
+    const config=await (await local.request('/api/public-config',{},'127.0.0.1:3210')).json();
+    assert.equal(config.forumOrigin,'');assert.equal(config.forumUrl,'http://127.0.0.1:3210/forum');
+  } finally {await local.close();}
 });
 
 test('production serves built pages/assets without exposing source, dotfiles, source maps, or arbitrary files',async()=>{

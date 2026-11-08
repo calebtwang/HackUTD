@@ -9,7 +9,7 @@ function validateMigration() {
   for (const key of ['SPACETIMEDB_HOST', 'SPACETIMEDB_DATABASE', 'SPACETIMEDB_TOKEN', 'WORKER_SECRET', 'VOICE_TOOL_SECRET', 'JUDGE_ACCESS_CODE']) {
     if (!process.env[key]?.trim()) throw new Error(`Missing required private setting: ${key}`);
   }
-  if (process.env.JUDGE_ACCESS_CODE.trim().length < 12) throw new Error('JUDGE_ACCESS_CODE must contain at least 12 characters.');
+  if (process.env.JUDGE_ACCESS_CODE.trim().length < 6) throw new Error('JUDGE_ACCESS_CODE must contain at least 6 characters.');
   const host = process.env.SPACETIMEDB_HOST.replace(/\/$/, '');
   const database = process.env.SPACETIMEDB_DATABASE;
   const target = new URL(host);

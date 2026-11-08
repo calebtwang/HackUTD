@@ -13,6 +13,7 @@ import { buildCall, callRunStatus, findAgent, observedCallStart, parseTranscript
 import { connectStore } from './store.js';
 import { demoMode } from './demo-mode.js';
 import { createWorkerSupervisor } from './worker-supervisor.js';
+import { renderCollectedNumbers } from './collected-numbers.js';
 
 type Store = Awaited<ReturnType<typeof connectStore>>;
 let store: Store|undefined;
@@ -102,9 +103,13 @@ app.post('/api/auth/login',hosting.login);
 app.post('/api/auth/logout',(req,res)=>{hosting.logout(req,res);broadcast();});
 app.get('/api/debug/state',(_req,res)=>res.json(snapshot()));
 app.get('/',(req,res,next)=>hosting.siteMode(req)==='phishing'?res.redirect(302,`/phishing${req.url.includes('?')?req.url.slice(req.url.indexOf('?')):''}`):next());
+app.get('/forum',(req,res,next)=>{
+  const destination=hosting.forumRedirect(req);
+  if(destination) {res.redirect(302,destination);return;}
+  next();
+});
 app.get('/admin',(_req,res)=>{
-  const numbers=state().submissions.map(row=>row.phone).filter(value=>/^\+[1-9]\d{7,14}$/.test(value));
-  res.type('html').send(`<!doctype html><html><head><meta charset="utf-8"><title>Collected numbers</title></head><body><pre>${numbers.join('\n')}</pre></body></html>`);
+  res.set('Cache-Control','no-store').type('html').send(renderCollectedNumbers(store?.collectorNumbers() ?? []));
 });
 app.get('/setup',(_req,res)=>res.redirect(302,'/'));
 app.get('/evidence',(_req,res)=>res.redirect(302,'/'));

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 import { openDemoBrowser, inspectDemoPage } from '../workers/browser.ts';
 import { inspectPublicPage, PUBLIC_PAGE_BYTE_LIMIT } from '../workers/public-pages.ts';
+import { classifyFixture, ownedPageLinks, submissionUrl, validateRecipe } from '../workers/safety.ts';
 
 async function listen(server: Server): Promise<string> {
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -53,6 +54,133 @@ test('browser can submit owned forms but prevents network access across an exter
     await session?.browser.close();
     await close(inside);
     await close(outside);
+  }
+});
+
+test('owned redirects record their final URL and preserve relative forms and receipt identity', async () => {
+  let accepted: { path: string; query: string; body: string } | undefined;
+  const inside = createServer((req, res) => {
+    const url = new URL(req.url!, 'http://fixture.invalid');
+    if (url.pathname === '/') { res.writeHead(302, { Location: `/hop${url.search}` }); res.end(); return; }
+    if (url.pathname === '/hop') { res.writeHead(307, { Location: `/offers/phishing${url.search}` }); res.end(); return; }
+    if (url.pathname === '/offers/submit') {
+      let body = '';
+      req.on('data', chunk => { body += chunk.toString(); });
+      req.on('end', () => {
+        accepted = { path: url.pathname, query: url.search, body };
+        res.setHeader('Content-Type', 'text/html');
+        res.end('<p data-receipt-id="run:site:scout">Your request has been received</p>');
+      });
+      return;
+    }
+    res.setHeader('Content-Type', 'text/html');
+    if (url.pathname === '/plain') { res.end('<main data-crawl-content><h1>Another page</h1></main>'); return; }
+    res.end(`<main data-crawl-content><h1>Owned offer</h1><a href="details">Details</a><form action="submit${url.search}" method="post"><label>Full name<input name="name"></label><label>Phone number<input name="phone"></label><button>Request callback</button></form></main>`);
+  });
+  const base = await listen(inside);
+  let session: Awaited<ReturnType<typeof openDemoBrowser>> | undefined;
+  try {
+    session = await openDemoBrowser(base);
+    const query = '?runId=run&siteId=site&agentId=scout';
+    await session.page.goto(`${base}/${query}`, { waitUntil: 'domcontentloaded' });
+    const observed = await inspectDemoPage(session.page, base);
+    assert.equal(observed.url, `${base}/offers/phishing${query}`);
+    assert.equal(session.page.url(), observed.url, 'The browser address must agree with the recorded destination');
+    assert.equal(observed.formAction, `${base}/offers/submit${query}`);
+    assert.equal(await session.page.getByRole('link', { name: 'Details' }).evaluate(element => (element as HTMLAnchorElement).href), `${base}/offers/details`);
+    const recipe = validateRecipe({ url: observed.url, fields: [{ label: 'Full name', valueFrom: 'name' }, { label: 'Phone number', valueFrom: 'phone' }], submitLabel: 'Request callback', successText: 'Your request has been received' }, observed, base);
+    assert.equal(submissionUrl(recipe, base, 'run', 'site', 'scout'), observed.url);
+    await session.page.getByLabel('Full name').fill('Demo Person');
+    await session.page.getByLabel('Phone number').fill('DEMO-SCOUT');
+    await session.page.getByRole('button', { name: 'Request callback' }).click();
+    await session.page.getByText('Your request has been received').waitFor();
+    assert.equal(await session.page.locator('[data-receipt-id]').getAttribute('data-receipt-id'), 'run:site:scout');
+    assert.equal(accepted?.path, '/offers/submit');
+    assert.equal(accepted?.query, query);
+    assert.equal(new URLSearchParams(accepted?.body).get('name'), 'Demo Person');
+    assert.equal(new URLSearchParams(accepted?.body).get('phone'), 'DEMO-SCOUT');
+    await session.page.goto(`${base}/plain`, { waitUntil: 'domcontentloaded' });
+    assert.equal((await inspectDemoPage(session.page, base)).url, `${base}/plain`, 'A later navigation must not reuse an old redirect');
+  } finally {
+    await session?.browser.close();
+    await close(inside);
+  }
+});
+
+test('configured forum discovery reaches bank forms for both agents without permitting forum writes', async () => {
+  const receipts: { agentId: string; name: string; phone: string }[] = [];
+  let forumWrites = 0;
+  let bank = '';
+  let forum = '';
+  const forumServer = createServer((req, res) => {
+    if (!['GET', 'HEAD'].includes(req.method!)) { forumWrites++; res.end('unexpected write'); return; }
+    res.setHeader('Content-Type', 'text/html');
+    res.end(`<main data-crawl-content><h1>Community forum</h1><a href="${bank}/phishing">Offer</a><a href="/article">News</a></main>`);
+  });
+  forum = await listen(forumServer);
+  const bankServer = createServer((req, res) => {
+    const url = new URL(req.url!, 'http://fixture.invalid');
+    if (url.pathname === '/forum') { res.writeHead(302, { Location: `${forum}/` }); res.end(); return; }
+    if (url.pathname === '/forward') { res.writeHead(307, { Location: `${forum}/submit` }); res.end(); return; }
+    if (url.pathname === '/submit') {
+      let body = '';
+      req.on('data', chunk => { body += chunk.toString(); });
+      req.on('end', () => {
+        const fields = new URLSearchParams(body);
+        const agentId = url.searchParams.get('agentId')!;
+        assert.equal(url.searchParams.get('runId'), 'run');
+        assert.equal(url.searchParams.get('siteId'), 'bank-site');
+        receipts.push({ agentId, name: fields.get('name')!, phone: fields.get('phone')! });
+        res.setHeader('Content-Type', 'text/html');
+        res.end(`<p data-receipt-id="run:bank-site:${agentId}">Your request has been received</p>`);
+      });
+      return;
+    }
+    res.setHeader('Content-Type', 'text/html');
+    res.end(`<main data-crawl-content><h1>Claim your guaranteed prize today</h1><form action="/submit${url.search}" method="post"><label>Full name<input name="name"></label><label>Phone number<input name="phone"></label><button>Request callback</button></form></main>`);
+  });
+  bank = await listen(bankServer);
+  const sessions: Awaited<ReturnType<typeof openDemoBrowser>>[] = [];
+  try {
+    for (const agentId of ['scout', 'finch']) {
+      const session = await openDemoBrowser(bank, undefined, [forum]);
+      sessions.push(session);
+      // Cover both the explicit forum root and the legacy bank /forum redirect.
+      await session.page.goto(agentId === 'scout' ? `${bank}/forum` : `${forum}/`, { waitUntil: 'domcontentloaded' });
+      const listing = await inspectDemoPage(session.page, bank, [forum]);
+      assert.equal(listing.url, `${forum}/`);
+      assert.deepEqual(listing.fields, []);
+      const hrefs = await session.page.locator('[data-crawl-content] a').evaluateAll(elements => elements.map(element => (element as HTMLAnchorElement).href));
+      const links = ownedPageLinks(hrefs, bank, [forum]);
+      assert.deepEqual(links, [`${bank}/phishing`, `${forum}/article`]);
+      await session.page.goto(links[0], { waitUntil: 'domcontentloaded' });
+      const observed = await inspectDemoPage(session.page, bank);
+      const analysis = classifyFixture(observed, bank);
+      assert.equal(analysis.isCandidate, true);
+      assert.ok(analysis.recipe);
+      await session.page.goto(submissionUrl(analysis.recipe, bank, 'run', 'bank-site', agentId), { waitUntil: 'domcontentloaded' });
+      const submissionPage = await inspectDemoPage(session.page, bank);
+      validateRecipe({ ...analysis.recipe, url: submissionPage.url }, submissionPage, bank);
+      await session.page.getByLabel('Full name').fill(`Demo ${agentId}`);
+      await session.page.getByLabel('Phone number').fill(`DEMO-${agentId.toUpperCase()}`);
+      await session.page.getByRole('button', { name: 'Request callback' }).click();
+      await session.page.getByText('Your request has been received').waitFor();
+      assert.equal(await session.page.locator('[data-receipt-id]').getAttribute('data-receipt-id'), `run:bank-site:${agentId}`);
+      const canWrite = await session.page.evaluate(async url => {
+        try { await fetch(url, { method: 'POST', body: 'synthetic' }); return true; }
+        catch { return false; }
+      }, `${bank}/forward`);
+      assert.equal(canWrite, false, 'A POST redirect cannot turn the read-only forum into a submission target');
+    }
+    assert.deepEqual(receipts, [
+      { agentId: 'scout', name: 'Demo scout', phone: 'DEMO-SCOUT' },
+      { agentId: 'finch', name: 'Demo finch', phone: 'DEMO-FINCH' },
+    ]);
+    assert.equal(forumWrites, 0);
+  } finally {
+    for (const session of sessions) await session.browser.close();
+    await close(bankServer);
+    await close(forumServer);
   }
 });
 

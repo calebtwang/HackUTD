@@ -81,6 +81,75 @@ details table { margin: 8px 0; max-width: 600px; }
 .bank-form input { display: block; width: 100%; max-width: 310px; padding: 5px; border: 1px solid #888; border-radius: 0; background: #fff; }
 .bank-form button { margin-top: 16px; border-radius: 0; }
 .bank-footer { padding: 10px 16px; border-top: 1px solid #aaa; background: #eee; color: #555; font-size: 10px; }
+
+/* Manager surfaces are deliberately separate from the old bank and forum. */
+.manager {
+  --canvas: #090909;
+  --surface: #171717;
+  --field: #222223;
+  --line: #303033;
+  --text: #f2f2f4;
+  --muted: #a4a4ac;
+  --accent: #4263ff;
+  min-height: 100vh;
+  background: var(--canvas);
+  color: var(--text);
+  color-scheme: dark;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+.manager main { max-width: 1440px; padding: 36px 40px 64px; }
+.manager h1 { margin: 0 0 26px; font-size: 28px; line-height: 1.25; font-weight: 600; letter-spacing: -.7px; }
+.manager h2 { margin: 36px 0 16px; font-size: 18px; line-height: 1.35; font-weight: 600; letter-spacing: -.25px; }
+.manager h3 { font-size: 15px; font-weight: 600; }
+.manager a, .manager a:visited { color: #bdc8ff; text-decoration-color: #5e6686; text-underline-offset: 3px; }
+.manager a:hover { color: #e0e5ff; text-decoration-color: currentColor; }
+.manager .secondary, .manager small, .manager .record .url { color: var(--muted); font-size: 13px; }
+.manager .table-scroll { background: var(--surface); border: 1px solid #29292c; border-radius: 12px; }
+.manager table { border-collapse: separate; border-spacing: 0; font-size: 14px; }
+.manager th, .manager td { padding: 18px 22px; border: 0; border-bottom: 1px solid #2b2b2e; line-height: 1.55; }
+.manager thead th { padding-top: 13px; padding-bottom: 13px; background: #1c1c1e; color: var(--muted); font-size: 13px; font-weight: 500; }
+.manager tbody tr:nth-child(even) { background: transparent; }
+.manager tbody tr:last-child > * { border-bottom: 0; }
+.manager .agents-table thead th:first-child { width: clamp(130px, 16vw, 190px); }
+.manager .agents-table thead th:nth-child(2) { width: clamp(170px, 18vw, 210px); }
+.manager .agents-table tbody th { color: var(--text); font-weight: 500; }
+.manager .agents-table tbody th, .manager .agents-table td { vertical-align: middle; padding-top: 16px; padding-bottom: 16px; }
+.manager .phone-cell { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.manager .phone-cell a, .manager .phone-cell a:visited { color: #d4d4da; text-decoration: none; }
+.manager .phone-cell a:hover { color: #fff; text-decoration: underline; }
+.manager input { min-height: 40px; padding: 9px 12px; border: 1px solid #3c3c42; border-radius: 7px; background: var(--field); color: var(--text); line-height: 1.4; }
+.manager input:disabled { opacity: 1; color: #b1b1ba; -webkit-text-fill-color: #b1b1ba; background: #1e1e20; border-color: #303034; cursor: default; }
+.manager .entry-point-cell input { font-size: 13px; }
+.manager .controls { gap: 8px; margin: 18px 0; }
+.manager button { min-height: 38px; padding: 8px 17px; border: 1px solid #3d3d42; border-radius: 7px; background: #242427; color: #e2e2e8; font-size: 13px; line-height: 1.5; font-weight: 500; }
+.manager button:hover:not(:disabled) { background: #303035; border-color: #62626d; }
+.manager .controls > button:first-of-type, .manager .access-form button { background: var(--accent); border-color: var(--accent); color: #fff; }
+.manager .controls > button:first-of-type:hover:not(:disabled), .manager .access-form button:hover:not(:disabled) { background: #5270ff; border-color: #5270ff; }
+.manager button:disabled, .manager .controls > button:disabled, .manager .access-form button:disabled { background: #19191c; border-color: #2d2d32; color: #777780; cursor: default; }
+.manager .controls > button:nth-of-type(4) { margin-left: auto; }
+.manager button:focus-visible, .manager a:focus-visible, .manager input:focus-visible, .manager summary:focus-visible { outline: 2px solid #94a7ff; outline-offset: 3px; }
+.manager .access-form { gap: 10px; margin: 20px 0 0; padding-top: 20px; border-top: 1px solid #252528; color: var(--muted); font-size: 13px; }
+.manager .access-form input { width: 210px; }
+.manager .access-controls { margin-bottom: 24px; }
+.manager .sites-table th:first-child { width: 42%; }
+.manager .sites-table td { padding-top: 20px; padding-bottom: 20px; }
+.manager .sites-table td > a { word-break: break-word; }
+.manager .field-list { padding-left: 20px; color: #c8c8cf; }
+.manager .field-list li { padding-left: 3px; }
+.manager .field-list li::marker { color: #888893; }
+.manager .field-list li + li { margin-top: 6px; }
+.manager .site-instructions { color: #c8c8cf; }
+.manager .site-instructions p { max-width: 75ch; }
+.manager .notice { border: 1px solid #45454d; border-radius: 8px; background: #202023; padding: 14px 16px; color: #d4d4dc; }
+.manager .error { color: #ffaaa7; }
+.manager .notice.error { background: #291b1d; border-color: #654043; }
+.manager .setup-table { overflow: hidden; border: 1px solid #29292c; border-radius: 12px; background: var(--surface); }
+.manager .record { border-color: #303033; padding: 20px 0; }
+.manager summary { color: #bdc8ff; text-underline-offset: 3px; }
+.manager .transcript { border-color: #42424b; color: #c8c8cf; }
+.manager .nowrap { font-variant-numeric: tabular-nums; }
 @media (max-width: 650px) {
   .manager main { padding: 14px 12px 30px; }
   .agents-table, .agents-table tbody { display: block; }
@@ -95,4 +164,21 @@ details table { margin: 8px 0; max-width: 600px; }
   .bank-navigation { padding: 14px 8px; }
   .bank-content { padding: 16px 12px; }
   .bank-header strong { font-size: 23px; }
+  .manager main { padding: 24px 16px 40px; }
+  .manager h1 { font-size: 25px; margin-bottom: 22px; }
+  .manager h2 { margin-top: 30px; }
+  .manager th, .manager td { padding: 14px 16px; }
+  .manager .agents-table tbody tr { background: var(--surface); }
+  .manager .agents-table tbody tr + tr { margin-top: 0; border-top: 1px solid #303033; }
+  .manager .agents-table tbody th, .manager .agents-table td { padding: 14px 16px 0; border: 0; }
+  .manager .agents-table .entry-point-cell { padding: 12px 16px 16px; border: 0; }
+  .manager .entry-point-label { color: var(--muted); margin-bottom: 7px; }
+  .manager .phone-cell { text-align: right; font-size: 13px; }
+  .manager .controls { gap: 7px; }
+  .manager button { padding: 8px 13px; }
+  .manager .controls > button:nth-of-type(4) { margin-left: 0; }
+  .manager .access-form label { width: 100%; }
+  .manager .access-form input { width: auto; flex: 1; min-width: 0; }
+  .manager .sites-table { font-size: 13px; }
+  .manager .sites-table th, .manager .sites-table td { padding: 13px 12px; }
 }
