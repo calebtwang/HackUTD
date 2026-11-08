@@ -23,6 +23,14 @@ export const Call = __t.object("Call", {
 });
 export type Call = __Infer<typeof Call>;
 
+export const CollectorNumber = __t.object("CollectorNumber", {
+  phone: __t.string(),
+});
+export type CollectorNumber = __Infer<typeof CollectorNumber>;
+
+export const CollectorNumbers = __t.object("CollectorNumbers", {});
+export type CollectorNumbers = __Infer<typeof CollectorNumbers>;
+
 export const Config = __t.object("Config", {
   id: __t.string(),
   data: __t.string(),
@@ -50,6 +58,104 @@ export const Job = __t.object("Job", {
   dueAt: __t.f64(),
 });
 export type Job = __Infer<typeof Job>;
+
+export const LeakCall = __t.object("LeakCall", {
+  id: __t.u64(),
+  personaId: __t.string(),
+  ringId: __t.string(),
+  siteId: __t.string(),
+  spokenMarker: __t.string(),
+  outcome: __t.string(),
+  durationSeconds: __t.u32(),
+  source: __t.string(),
+  externalId: __t.string(),
+  at: __t.timestamp(),
+});
+export type LeakCall = __Infer<typeof LeakCall>;
+
+export const LedgerEntry = __t.object("LedgerEntry", {
+  id: __t.string(),
+  agentId: __t.string(),
+  name: __t.string(),
+  marker: __t.string(),
+  siteId: __t.string(),
+  receivedAt: __t.f64(),
+});
+export type LedgerEntry = __Infer<typeof LedgerEntry>;
+
+export const OperatorLedger = __t.object("OperatorLedger", {});
+export type OperatorLedger = __Infer<typeof OperatorLedger>;
+
+export const SimPersona = __t.object("SimPersona", {
+  id: __t.u64(),
+  key: __t.string(),
+  name: __t.string(),
+  marker: __t.string(),
+  phoneMasked: __t.string(),
+  plants: __t.u32(),
+  callsReceived: __t.u32(),
+  source: __t.string(),
+});
+export type SimPersona = __Infer<typeof SimPersona>;
+
+export const SimPlant = __t.object("SimPlant", {
+  id: __t.u64(),
+  personaId: __t.string(),
+  siteId: __t.string(),
+  plantedAt: __t.timestamp(),
+  source: __t.string(),
+});
+export type SimPlant = __Infer<typeof SimPlant>;
+
+export const SimRing = __t.object("SimRing", {
+  id: __t.u64(),
+  key: __t.string(),
+  label: __t.string(),
+  pretext: __t.string(),
+  calls: __t.u32(),
+  lastSeenAt: __t.timestamp(),
+});
+export type SimRing = __Infer<typeof SimRing>;
+
+export const SimRingPurchase = __t.object("SimRingPurchase", {
+  id: __t.u64(),
+  ringId: __t.string(),
+  siteId: __t.string(),
+  leaked: __t.bool(),
+});
+export type SimRingPurchase = __Infer<typeof SimRingPurchase>;
+
+export const SimSite = __t.object("SimSite", {
+  id: __t.u64(),
+  key: __t.string(),
+  label: __t.string(),
+  leakiness: __t.f64(),
+  leaks: __t.u32(),
+  tracedCalls: __t.u32(),
+  source: __t.string(),
+});
+export type SimSite = __Infer<typeof SimSite>;
+
+export const SimStats = __t.object("SimStats", {
+  id: __t.u64(),
+  running: __t.bool(),
+  seed: __t.u64(),
+  tick: __t.u64(),
+  calls: __t.u64(),
+  simulatedCalls: __t.u64(),
+  liveCalls: __t.u64(),
+  secondsBurned: __t.u64(),
+  personas: __t.u32(),
+  sites: __t.u32(),
+  rings: __t.u32(),
+});
+export type SimStats = __Infer<typeof SimStats>;
+
+export const SimTickSchedule = __t.object("SimTickSchedule", {
+  scheduledId: __t.u64(),
+  scheduledAt: __t.scheduleAt(),
+});
+export type SimTickSchedule = __Infer<typeof SimTickSchedule>;
 
 export const Site = __t.object("Site", {
   id: __t.string(),

@@ -35,15 +35,26 @@ import {
 
 // Import all reducer arg schemas
 import DispatchReducer from "./dispatch_reducer";
+import StartSimulationReducer from "./start_simulation_reducer";
+import StopSimulationReducer from "./stop_simulation_reducer";
 
 // Import all procedure arg schemas
 
 // Import all table schema definitions
 import AgentRow from "./agent_table";
 import CallRow from "./call_table";
+import CollectorNumbersRow from "./collector_numbers_table";
 import DemoEventRow from "./demo_event_table";
 import DemoRunRow from "./demo_run_table";
 import JobRow from "./job_table";
+import LeakCallRow from "./leak_call_table";
+import OperatorLedgerRow from "./operator_ledger_table";
+import SimPersonaRow from "./sim_persona_table";
+import SimPlantRow from "./sim_plant_table";
+import SimRingRow from "./sim_ring_table";
+import SimRingPurchaseRow from "./sim_ring_purchase_table";
+import SimSiteRow from "./sim_site_table";
+import SimStatsRow from "./sim_stats_table";
 import SiteRow from "./site_table";
 import SubmissionRow from "./submission_table";
 
@@ -118,6 +129,122 @@ const tablesSchema = __schema({
       { name: 'job_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, JobRow),
+  leakCall: __table({
+    name: 'leak_call',
+    indexes: [
+      { accessor: 'id', name: 'leak_call_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'personaId', name: 'leak_call_persona_id_idx_btree', algorithm: 'btree', columns: [
+        'personaId',
+      ] },
+      { accessor: 'ringId', name: 'leak_call_ring_id_idx_btree', algorithm: 'btree', columns: [
+        'ringId',
+      ] },
+      { accessor: 'siteId', name: 'leak_call_site_id_idx_btree', algorithm: 'btree', columns: [
+        'siteId',
+      ] },
+      { accessor: 'spokenMarker', name: 'leak_call_spoken_marker_idx_btree', algorithm: 'btree', columns: [
+        'spokenMarker',
+      ] },
+    ],
+    constraints: [
+      { name: 'leak_call_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, LeakCallRow),
+  simPersona: __table({
+    name: 'sim_persona',
+    indexes: [
+      { accessor: 'id', name: 'sim_persona_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'key', name: 'sim_persona_key_idx_btree', algorithm: 'btree', columns: [
+        'key',
+      ] },
+      { accessor: 'marker', name: 'sim_persona_marker_idx_btree', algorithm: 'btree', columns: [
+        'marker',
+      ] },
+    ],
+    constraints: [
+      { name: 'sim_persona_id_key', constraint: 'unique', columns: ['id'] },
+      { name: 'sim_persona_key_key', constraint: 'unique', columns: ['key'] },
+    ],
+  }, SimPersonaRow),
+  simPlant: __table({
+    name: 'sim_plant',
+    indexes: [
+      { accessor: 'id', name: 'sim_plant_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'personaId', name: 'sim_plant_persona_id_idx_btree', algorithm: 'btree', columns: [
+        'personaId',
+      ] },
+      { accessor: 'siteId', name: 'sim_plant_site_id_idx_btree', algorithm: 'btree', columns: [
+        'siteId',
+      ] },
+    ],
+    constraints: [
+      { name: 'sim_plant_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, SimPlantRow),
+  simRing: __table({
+    name: 'sim_ring',
+    indexes: [
+      { accessor: 'id', name: 'sim_ring_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'key', name: 'sim_ring_key_idx_btree', algorithm: 'btree', columns: [
+        'key',
+      ] },
+    ],
+    constraints: [
+      { name: 'sim_ring_id_key', constraint: 'unique', columns: ['id'] },
+      { name: 'sim_ring_key_key', constraint: 'unique', columns: ['key'] },
+    ],
+  }, SimRingRow),
+  simRingPurchase: __table({
+    name: 'sim_ring_purchase',
+    indexes: [
+      { accessor: 'id', name: 'sim_ring_purchase_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'ringId', name: 'sim_ring_purchase_ring_id_idx_btree', algorithm: 'btree', columns: [
+        'ringId',
+      ] },
+      { accessor: 'siteId', name: 'sim_ring_purchase_site_id_idx_btree', algorithm: 'btree', columns: [
+        'siteId',
+      ] },
+    ],
+    constraints: [
+      { name: 'sim_ring_purchase_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, SimRingPurchaseRow),
+  simSite: __table({
+    name: 'sim_site',
+    indexes: [
+      { accessor: 'id', name: 'sim_site_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'key', name: 'sim_site_key_idx_btree', algorithm: 'btree', columns: [
+        'key',
+      ] },
+    ],
+    constraints: [
+      { name: 'sim_site_id_key', constraint: 'unique', columns: ['id'] },
+      { name: 'sim_site_key_key', constraint: 'unique', columns: ['key'] },
+    ],
+  }, SimSiteRow),
+  simStats: __table({
+    name: 'sim_stats',
+    indexes: [
+      { accessor: 'id', name: 'sim_stats_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+    ],
+    constraints: [
+      { name: 'sim_stats_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, SimStatsRow),
   site: __table({
     name: 'site',
     indexes: [
@@ -146,11 +273,27 @@ const tablesSchema = __schema({
       { name: 'submission_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, SubmissionRow),
+  collectorNumbers: __table({
+    name: 'collector_numbers',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, CollectorNumbersRow),
+  operatorLedger: __table({
+    name: 'operator_ledger',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, OperatorLedgerRow),
 });
 
 /** The schema information for all reducers in this module. This is defined the same way as the reducers would have been defined in the server, except the body of the reducer is omitted in code generation. */
 const reducersSchema = __reducers(
   __reducerSchema("dispatch", DispatchReducer),
+  __reducerSchema("start_simulation", StartSimulationReducer),
+  __reducerSchema("stop_simulation", StopSimulationReducer),
 );
 
 /** The schema information for all procedures in this module. This is defined the same way as the procedures would have been defined in the server. */

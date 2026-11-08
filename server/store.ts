@@ -5,6 +5,8 @@ export type StoreOptions = { host?: string; database?: string; token?: string; o
 export type DemoStore = {
   snapshot(): DemoState;
   dispatch(action: string, payload: unknown): Promise<void>;
+  startSimulation(args: { seed: number; personaCount: number; siteCount: number; ringCount: number }): Promise<void>;
+  stopSimulation(): Promise<void>;
   subscribe(listener: (state: DemoState) => void): () => void;
   close(): void;
   readonly identity: string;
@@ -63,6 +65,14 @@ export async function connectStore(options: StoreOptions = {}): Promise<DemoStor
     async dispatch(action, payload) {
       if (closed) throw new Error('Store has been closed');
       await connection.reducers.dispatch({ action, payload: JSON.stringify(payload) });
+    },
+    async startSimulation({ seed, personaCount, siteCount, ringCount }) {
+      if (closed) throw new Error('Store has been closed');
+      await connection.reducers.startSimulation({ seed: BigInt(seed), personaCount, siteCount, ringCount });
+    },
+    async stopSimulation() {
+      if (closed) throw new Error('Store has been closed');
+      await connection.reducers.stopSimulation({});
     },
     subscribe(listener) { listeners.add(listener); return () => { listeners.delete(listener); }; },
     close() { closed = true; listeners.clear(); connection.disconnect(); },

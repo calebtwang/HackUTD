@@ -123,6 +123,24 @@ app.post('/api/demo/stop',async(_req,res)=>{
 app.post('/api/demo/reset',async(_req,res)=>{
   stopWorkers();await requireStore().dispatch('reset',{});broadcast();res.json({ok:true});
 });
+app.post('/api/sim/start',async(req,res)=>{
+  const db=requireStore();
+  const body=req.body || {};
+  const seed=Number(body.seed);
+  const personaCount=Number(body.personaCount);
+  const siteCount=Number(body.siteCount);
+  const ringCount=Number(body.ringCount);
+  if (!Number.isInteger(seed) || seed<0 || seed>Number.MAX_SAFE_INTEGER) {res.status(400).json({error:'Seed must be a whole number between 0 and 2^53.'});return;}
+  for (const [label,value,min,max] of [['Persona count',personaCount,1,400],['Site count',siteCount,1,60],['Ring count',ringCount,1,12]] as const) {
+    if (!Number.isInteger(value) || value<min || value>max) {res.status(400).json({error:`${label} must be a whole number between ${min} and ${max}.`});return;}
+  }
+  try {await db.startSimulation({seed,personaCount,siteCount,ringCount});broadcast();res.json({ok:true});}
+  catch(error) {res.status(400).json({error:error instanceof Error ? error.message : 'The simulation could not be started.'});}
+});
+app.post('/api/sim/stop',async(_req,res)=>{
+  try {await requireStore().stopSimulation();broadcast();res.json({ok:true});}
+  catch(error) {res.status(400).json({error:error instanceof Error ? error.message : 'The simulation could not be stopped.'});}
+});
 app.post('/api/mock/submit',async(req,res)=>{
   const body=req.body || {};
   for (const key of ['runId','siteId','agentId','name','phone','marker']) {

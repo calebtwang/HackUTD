@@ -83,3 +83,10 @@ details table { margin: 8px 0; max-width: 600px; }
   .bank-content { padding: 16px 12px; }
   .bank-header strong { font-size: 23px; }
 }
+
+/* Simulation section: plain tables and controls, consistent with the manager. */
+.simulation { margin-top: 24px; padding-top: 12px; border-top: 1px solid #ccc; }
+.simulation h3 { margin: 18px 0 6px; font-size: 14px; }
+.simulation .controls label { color: #555; font-size: 13px; }
+.simulation .controls input[type="number"] { width: 90px; padding: 4px 6px; border: 1px solid #888; border-radius: 0; background: #fff; }
+.simulation .connection-status { margin-bottom: 12px; }

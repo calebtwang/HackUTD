@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { EMPTY_STATE, PERSONAS, type AppSnapshot, type Agent, type Call } from '../shared/contracts';
 import { isPhoneNumber, modelDemoReady, phonePresentation } from '../shared/readiness';
+import { useSpacetime, type SimSnapshot } from './spacetime';
 import './style.css';
 
 const INITIAL: AppSnapshot = { ...EMPTY_STATE, setup: {
@@ -27,7 +28,11 @@ function App() {
   const [error, setError] = useState('');
   const [pending, setPending] = useState('');
   const [now, setNow] = useState(Date.now());
+  const [seed, setSeed] = useState(42);
+  const [simPending, setSimPending] = useState(false);
+  const [simError, setSimError] = useState('');
   const path = window.location.pathname;
+  const sim = useSpacetime(snapshot.setup.database.host, snapshot.setup.database.name);
   useEffect(() => {
     let alive = true;
     document.title = path === '/admin' ? 'Collected numbers' : path === '/forum' ? 'Community forum' : path.startsWith('/demo/') ? 'Demo website' : 'Agent manager';
@@ -61,8 +66,24 @@ function App() {
     finally { setPending(''); }
   }
 
+  async function simControl(endpoint: 'start' | 'stop', body: unknown = {}) {
+    setSimPending(true); setSimError('');
+    try {
+      const response = await fetch(`/api/sim/${endpoint}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'The request could not be completed.');
+    } catch (cause) { setSimError(cause instanceof Error ? cause.message : 'Unable to complete the request.'); }
+    finally { setSimPending(false); }
+  }
+
   // Deliberately no chrome or empty-state text on the collector's number list.
-  if (path === '/admin') return <pre className="numbers-only">{snapshot.submissions.map(row => row.phone).filter(isPhoneNumber).join('\n')}</pre>;
+  // Prefer the collector_numbers view over the direct connection; fall back to the SSE snapshot filter.
+  if (path === '/admin') {
+    const numbers = sim.connected ? sim.collectorNumbers : snapshot.submissions.map(row => row.phone).filter(isPhoneNumber);
+    return <pre className="numbers-only">{numbers.join('\n')}</pre>;
+  }
   if (path.startsWith('/demo/')) return <FixturePage path={path} snapshot={snapshot} />;
   if (path === '/forum') return <Forum />;
   const online = connection === 'online';
@@ -88,6 +109,7 @@ function App() {
         <p>Run: <strong>{snapshot.run ? statusText(snapshot.run.status) : 'not started'}</strong>. Mode: {snapshot.setup.mode === 'live' ? 'model discovery' : 'fixed-rule rehearsal'}.</p>
         <p className="secondary">Model discovery requires a connected model and database. Phone testing is separate.</p>
         <p className="summary-line">Sites: {snapshot.sites.length} | Submissions: {snapshot.submissions.length} | Calls: {snapshot.calls.length} | Call duration: {duration(snapshot.calls.reduce((sum, call) => sum + call.durationSeconds, 0))} | Phone lines tested: {snapshot.setup.voice.configured}/{snapshot.setup.voice.total}</p>
+        <Simulation sim={sim} seed={seed} setSeed={setSeed} databaseReady={databaseReady} pending={simPending} error={simError} onStart={() => simControl('start', { seed, personaCount: 120, siteCount: 24, ringCount: 6 })} onStop={() => simControl('stop')} />
         <h2>Agents</h2>
         <div className="table-scroll"><table className="agents-table">
           <thead><tr><th>Worker</th><th>Character</th><th>Phone</th><th>Reference</th><th>Status</th></tr></thead>
@@ -98,6 +120,7 @@ function App() {
         <table className="setup-table"><thead><tr><th>Service</th><th>Status</th></tr></thead><tbody>
           <tr><td>Discovery model</td><td>{snapshot.setup.model.configured ? `Configured (${snapshot.setup.model.provider})` : 'Setup needed'}</td></tr>
           <tr><td>SpacetimeDB</td><td>{snapshot.setup.database.connected ? 'Connected' : 'Not connected'}</td></tr>
+          <tr><td>Browser subscription</td><td>{sim.connected ? 'Connected (direct)' : 'Not connected'}</td></tr>
           <tr><td>Call updates</td><td>{snapshot.setup.voice.webhookReady ? 'Configured' : 'Setup needed'}</td></tr>
         </tbody></table>
         <p><a href="/setup">Manage connections and credentials</a></p>
@@ -129,6 +152,61 @@ function Activity({ snapshot }: { snapshot: AppSnapshot }) {
     <thead><tr><th>Time</th><th>Worker</th><th>Event</th></tr></thead>
     <tbody>{events.map(event => <tr key={event.id}><td className="nowrap">{fmtTime(event.timestamp)}</td><td>{event.agentId || 'system'}</td><td>{event.kind === 'form_accepted' ? 'Profile accepted by the demo form.' : event.message}</td></tr>)}</tbody>
   </table></div>;
+}
+
+function Simulation({ sim, seed, setSeed, databaseReady, pending, error, onStart, onStop }: {
+  sim: SimSnapshot; seed: number; setSeed: (value: number) => void; databaseReady: boolean;
+  pending: boolean; error: string; onStart: () => void; onStop: () => void;
+}) {
+  const stats = sim.stats;
+  const hours = Math.floor(stats ? stats.secondsBurned / 3600 : 0);
+  const minutes = Math.floor(((stats ? stats.secondsBurned : 0) % 3600) / 60);
+  const sourceLabel = (source: string) => source === 'live' ? 'Live' : 'Simulated';
+  const personaName = new Map(sim.personas.map(persona => [persona.key, persona.name]));
+  const siteLabel = new Map(sim.sites.map(site => [site.key, site.label]));
+  const plantsBySite = (key: string) => sim.plants.filter(plant => plant.siteId === key).length;
+  const listsBought = (key: string) => sim.ringPurchases.filter(purchase => purchase.ringId === key).length;
+  const sites = [...sim.sites].sort((a, b) => b.tracedCalls - a.tracedCalls || (a.source === 'live' ? 0 : 1) - (b.source === 'live' ? 0 : 1)).slice(0, 15);
+  const running = Boolean(stats?.running);
+  return <section className="simulation">
+    <h2>Simulation</h2>
+    <p>Simulated rows are generated inside the database by a scheduled reducer and are labeled simulated. Live rows come from actual calls.</p>
+    <div className="connection-status" role="status">
+      {sim.connected ? `Browser connection to SpacetimeDB: connected as ${sim.identityShort}` : 'Browser connection to SpacetimeDB: not connected'}
+      {' | '}Simulation: {running ? 'running' : 'stopped'}
+      {' | '}Tick: {stats ? stats.tick : 0}
+      {' | '}Simulated calls: {stats ? stats.simulatedCalls : 0}
+      {' | '}Live calls: {stats ? stats.liveCalls : 0}
+      {' | '}Caller time simulated: {hours}h {minutes}m
+    </div>
+    <div className="controls">
+      <label htmlFor="sim-seed">Seed</label>
+      <input id="sim-seed" type="number" min={0} value={seed} onChange={event => setSeed(Math.max(0, Math.floor(Number(event.target.value) || 0)))} />
+      <button disabled={!databaseReady || running || pending} onClick={onStart}>Start simulation</button>
+      <button disabled={!databaseReady || !running || pending} onClick={onStop}>Stop simulation</button>
+      {pending && <span role="status">Working…</span>}
+    </div>
+    {error && <div className="notice error" role="alert">{error}</div>}
+    <h3>Sites by traced leaks</h3>
+    {!sites.length ? <p>No sites yet. Start the simulation to generate activity.</p> : <div className="table-scroll"><table>
+      <thead><tr><th>Label</th><th>Source</th><th>Plants</th><th>Leaks</th><th>Traced calls</th></tr></thead>
+      <tbody>{sites.map(site => <tr key={site.key}><td>{site.label}</td><td>{sourceLabel(site.source)}</td><td>{plantsBySite(site.key)}</td><td>{site.leaks}</td><td>{site.tracedCalls}</td></tr>)}</tbody>
+    </table></div>}
+    <h3>Scam operations (simulated)</h3>
+    {!sim.rings.length ? <p>No operations yet.</p> : <div className="table-scroll"><table>
+      <thead><tr><th>Label</th><th>Pretext</th><th>Calls</th><th>Lists purchased</th></tr></thead>
+      <tbody>{sim.rings.map(ring => <tr key={ring.key}><td>{ring.label}</td><td>{ring.pretext}</td><td>{ring.calls}</td><td>{listsBought(ring.key)}</td></tr>)}</tbody>
+    </table></div>}
+    <h3>Recent calls</h3>
+    {!sim.leakCalls.length ? <p>No calls yet.</p> : <div className="table-scroll"><table>
+      <thead><tr><th>Time</th><th>Source</th><th>Persona</th><th>Spoken reference</th><th>Attributed site</th><th>Outcome</th><th>Duration</th></tr></thead>
+      <tbody>{sim.leakCalls.map(call => <tr key={call.id}>
+        <td className="nowrap">{fmtTime(call.at)}</td><td>{sourceLabel(call.source)}</td>
+        <td>{personaName.get(call.personaId) || call.personaId}</td><td>{call.spokenMarker}</td>
+        <td>{siteLabel.get(call.siteId) || call.siteId}</td><td>{statusText(call.outcome)}</td><td className="nowrap">{duration(call.durationSeconds)}</td>
+      </tr>)}</tbody>
+    </table></div>}
+  </section>;
 }
 
 function Evidence({ snapshot }: { snapshot: AppSnapshot }) {

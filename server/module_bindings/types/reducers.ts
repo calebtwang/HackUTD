@@ -7,6 +7,10 @@ import { type Infer as __Infer } from "spacetimedb";
 
 // Import all reducer arg schemas
 import DispatchReducer from "../dispatch_reducer";
+import StartSimulationReducer from "../start_simulation_reducer";
+import StopSimulationReducer from "../stop_simulation_reducer";
 
 export type DispatchParams = __Infer<typeof DispatchReducer>;
+export type StartSimulationParams = __Infer<typeof StartSimulationReducer>;
+export type StopSimulationParams = __Infer<typeof StopSimulationReducer>;
 

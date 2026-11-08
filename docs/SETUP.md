@@ -99,6 +99,23 @@ The [admin page](http://127.0.0.1:3210/admin) lists only actual submitted phone 
 
 The local-only [connections page](http://127.0.0.1:3210/setup) accepts model and provider keys without displaying saved values. Saving a Photon key does not configure its phone routing. For a model connection, supply the provider's OpenAI-compatible API base URL, model ID, and key. The scout calls that API only in the model demo. Model discovery requires a database and model connection; phone readiness is independent. `node --import tsx scripts/test-model.ts` exercises model analysis against the owned fixture while the app is running; this makes a real model request.
 
+## Simulation controls
+
+The in-database simulation runs independently of a demo run and only ever writes rows marked `source = 'simulated'`. It is controlled by two owner-only reducers; call them with the same CLI configuration that published the database. Arguments to `start_simulation` are `seed personaCount siteCount ringCount` (the module clamps personas to 400, sites to 60, and rings to 12).
+
+```sh
+scripts/spacetime.sh --config-path .local/spacetime-local.toml call honeyline-demo start_simulation 42 120 24 6 --server http://127.0.0.1:3000
+scripts/spacetime.sh --config-path .local/spacetime-local.toml call honeyline-demo stop_simulation --server http://127.0.0.1:3000
+```
+
+`start_simulation` clears existing simulation rows, seeds a fresh world, and arms the module's two-second scheduler; `stop_simulation` cancels the schedule and freezes the counters while retaining the rows. Inspect progress with SQL, for example:
+
+```sh
+scripts/spacetime.sh --config-path .local/spacetime-local.toml sql honeyline-demo "SELECT running, tick, calls, simulated_calls, live_calls FROM sim_stats" --server http://127.0.0.1:3000
+```
+
+Republishing after a schema change preserves these rows when you keep `--delete-data=never` (see section 2); only an incompatible migration requires `--delete-data=always`, which clears all data.
+
 ## Phone and call evidence setup
 
 Photon requires a saved card even when existing credit covers the purchase and the amount due is $0; credit is applied before charging the card. Add payment details only in Photon's billing page, never in the demo or this repository, and provision numbers only within the approved budget. See [Photon payment methods and credit](https://photon.codes/docs/beta/invoices-and-payments).
