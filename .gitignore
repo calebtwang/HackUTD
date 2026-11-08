@@ -1,8 +1,0 @@
-.env
-.env.*
-!.env.example
-.venv/
-state/
-__pycache__/
-config/inbound-trunk.json
-config/dispatch.json

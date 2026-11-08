@@ -1,9 +1,0 @@
-{
-  "name": "Margaret Photon inbound",
-  "numbers": ["REPLACE_WITH_DEDICATED_E164_NUMBER"],
-  "authUsername": "REPLACE_WITH_INBOUND_SIP_USERNAME",
-  "authPassword": "REPLACE_WITH_INBOUND_SIP_PASSWORD",
-  "ringingTimeout": "15s",
-  "maxCallDuration": "600s",
-  "media": {"encryption": "SIP_MEDIA_ENCRYPT_REQUIRE"}
-}
