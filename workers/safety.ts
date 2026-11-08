@@ -1,4 +1,4 @@
-import type { Recipe } from '../shared/contracts.ts';
+import { canonicalDemoUrl, type Recipe } from '../shared/contracts.ts';
 
 export type PageDescription = {
   url: string;
@@ -15,6 +15,21 @@ export type Analysis = {
   evidence: string[];
   recipe: Recipe | null;
 };
+export type ReadOnlyAnalysis = Omit<Analysis, 'recipe'>;
+
+/** Feed membership is not a completed inspection, even after a failed attempt. */
+export function publicInspectionNeeded(site?: { inspectionStatus?: string; sourceUrl?: string }): boolean {
+  return !site || site.inspectionStatus !== 'inspected' && (!!site.sourceUrl || !!site.inspectionStatus);
+}
+
+export function observedFormDetails(page: PageDescription): { title: string; observedFields: string[]; observedButtons: string[]; observedFormAction?: string } {
+  return {
+    title: page.title.trim().slice(0, 200) || new URL(page.url).hostname,
+    observedFields: page.fields.slice(0, 40).map(field => field.label.trim().slice(0, 100)).filter(Boolean),
+    observedButtons: page.buttons.slice(0, 20).map(button => button.trim().slice(0, 100)).filter(Boolean),
+    ...(page.formAction && page.formAction.length <= 2000 ? { observedFormAction: page.formAction } : {}),
+  };
+}
 
 /** URL.origin handles ports, deceptive subdomains, and protocol-relative links. */
 export function allowedUrl(input: string, base: string): URL {
@@ -24,6 +39,21 @@ export function allowedUrl(input: string, base: string): URL {
     throw new Error('The worker can only visit the configured demo origin.');
   }
   return url;
+}
+
+/** Keep worker navigation and transactional database URL de-duplication aligned. */
+export function canonicalPageUrl(input: string, base: string): string {
+  return canonicalDemoUrl(allowedUrl(input, base).href);
+}
+
+/** Any owned path can be an entry or link; external links never enter the queue. */
+export function ownedPageLinks(links: string[], base: string): string[] {
+  const result = new Set<string>();
+  for (const link of links) {
+    try { result.add(canonicalPageUrl(link, base)); }
+    catch { /* A page may link outside the owned demonstration. */ }
+  }
+  return [...result];
 }
 
 export function validateRecipe(value: unknown, page: PageDescription, base: string): Recipe {
@@ -39,14 +69,14 @@ export function validateRecipe(value: unknown, page: PageDescription, base: stri
   const actual = allowedUrl(page.url, base);
   if (url.href !== actual.href) throw new Error('Recipe must refer to the inspected page.');
   allowedUrl(page.formAction, base);
-  if (!Array.isArray(recipe.fields) || recipe.fields.length !== 3) throw new Error('Recipe requires the three demo fields.');
+  if (!Array.isArray(recipe.fields) || recipe.fields.length !== 2 || page.fields.length !== 2) throw new Error('Recipe requires only the two observed name and phone fields.');
   const sources = new Set<string>();
   const labels = new Set<string>();
   const fields: Recipe['fields'] = recipe.fields.map((field: unknown) => {
     if (!field || typeof field !== 'object' || Array.isArray(field)) throw new Error('Invalid field mapping.');
     const item = field as Record<string, unknown>;
     if (Object.keys(item).some(key => !['label', 'valueFrom'].includes(key))) throw new Error('Unsupported field action.');
-    if (typeof item.label !== 'string' || typeof item.valueFrom !== 'string' || !['name', 'phone', 'marker'].includes(item.valueFrom)) {
+    if (typeof item.label !== 'string' || typeof item.valueFrom !== 'string' || !['name', 'phone'].includes(item.valueFrom)) {
       throw new Error('Invalid field source.');
     }
     if (!page.fields.some(f => f.label === item.label) || labels.has(item.label) || sources.has(item.valueFrom)) {
@@ -54,17 +84,17 @@ export function validateRecipe(value: unknown, page: PageDescription, base: stri
     }
     sources.add(item.valueFrom);
     labels.add(item.label);
-    return { label: item.label, valueFrom: item.valueFrom as 'name' | 'phone' | 'marker' };
+    return { label: item.label, valueFrom: item.valueFrom as 'name' | 'phone' };
   });
   if (!page.buttons.includes(recipe.submitLabel)) throw new Error('Submit button was not observed.');
   if (recipe.successText !== 'Your request has been received') throw new Error('Unknown demo receipt confirmation.');
   return { url: url.href, fields, submitLabel: recipe.submitLabel, successText: recipe.successText };
 }
 
-export function validateAnalysis(value: unknown, page: PageDescription, base: string): Analysis {
+function validateDecision(value: unknown, page: PageDescription, keys: string[]): ReadOnlyAnalysis {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Model did not return a decision object.');
   const result = value as Record<string, unknown>;
-  if (Object.keys(result).some(key => !['isCandidate', 'confidence', 'evidence', 'recipe'].includes(key))) {
+  if (Object.keys(result).some(key => !keys.includes(key))) {
     throw new Error('Unexpected model decision fields.');
   }
   if (typeof result.isCandidate !== 'boolean' || !['high', 'medium', 'low'].includes(String(result.confidence))) {
@@ -82,8 +112,28 @@ export function validateAnalysis(value: unknown, page: PageDescription, base: st
     isCandidate: result.isCandidate,
     confidence: result.confidence as Analysis['confidence'],
     evidence: (result.evidence as string[]).map(normalizeWhitespace),
-    recipe: result.isCandidate ? validateRecipe(result.recipe, page, base) : null,
   };
+}
+
+export function validateAnalysis(value: unknown, page: PageDescription, base: string): Analysis {
+  const result = validateDecision(value, page, ['isCandidate', 'confidence', 'evidence', 'recipe']);
+  return { ...result, recipe: result.isCandidate ? validateRecipe((value as Record<string, unknown>).recipe, page, base) : null };
+}
+
+export function validateReadOnlyAnalysis(value: unknown, page: PageDescription): ReadOnlyAnalysis {
+  return validateDecision(value, page, ['isCandidate', 'confidence', 'evidence']);
+}
+
+/** Explicit rule-based rehearsal can observe arbitrary fields but cannot submit. */
+export function classifyReadOnlyFixture(page: PageDescription): ReadOnlyAnalysis {
+  const signals = [
+    /guaranteed|selected|winner|reward|prize|refund|grant|gift|claim/i,
+    /expire|minutes|urgent|limited|act now|today|verify|verification/i,
+    /phone|callback|call|password|login|account/i,
+  ];
+  const paragraphs = page.text.split(/\n+/).map(text => text.trim()).filter(Boolean);
+  const evidence = [...new Set(signals.map(signal => paragraphs.find(text => signal.test(text))?.slice(0, 300)).filter((text): text is string => !!text))];
+  return { isCandidate: signals.every(signal => signal.test(page.text)), confidence: signals.every(signal => signal.test(page.text)) ? 'medium' : 'low', evidence };
 }
 
 /** An explicitly selected fixture rehearsal, never an automatic model fallback. */
@@ -102,7 +152,6 @@ export function classifyFixture(page: PageDescription, base: string): Analysis {
     fields: [
       { label: 'Full name', valueFrom: 'name' },
       { label: 'Phone number', valueFrom: 'phone' },
-      { label: 'Reference', valueFrom: 'marker' },
     ],
     submitLabel: 'Request callback',
     successText: 'Your request has been received',

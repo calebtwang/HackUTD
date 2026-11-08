@@ -1,0 +1,23 @@
+{
+	servers {
+		strict_sni_host on
+	}
+}
+
+# Only these exact hostnames reach the application. Caddy obtains and renews TLS.
+phoney.desmos.help {
+	encode zstd gzip
+	reverse_proxy app:3210 {
+		flush_interval -1
+	}
+}
+
+phish.popsicle.space, bank.desmos.help {
+	encode zstd gzip
+	reverse_proxy app:3210
+}
+
+# Unknown HTTP hosts receive no app content or redirect to a user-supplied host.
+:80 {
+	respond "Not found" 404
+}

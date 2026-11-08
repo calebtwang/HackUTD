@@ -1,25 +1,26 @@
 import 'dotenv/config';
 import express, { type Request, type Response, type NextFunction } from 'express';
-import { createServer as createViteServer } from 'vite';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { WebhooksClient } from '@elevenlabs/elevenlabs-js/wrapper/webhooks.js';
 import { EMPTY_STATE, type AppSnapshot, type DemoState } from '../shared/contracts.js';
 import { modelDemoReady, modelDemoStartMessage } from '../shared/readiness.js';
-import { adminToken, baseUrl, databaseHost, databaseName, localDir, personas, port, publicUrl, root, voiceToolSecret, webhookPort, workerSecret } from './config.js';
-import { buildCall, callRunStatus, findAgent, observedCallStart, parseTranscript, possibleMatch, verifiedMatch } from './calls.js';
+import { adminToken, baseUrl, bindHost, hosting, demoOrigin, managerOrigin, databaseHost, databaseName, localDir, personas, port, publicUrl, root, voiceToolSecret, webhookPort, workerSecret } from './config.js';
+import { publicSnapshot } from './hosting.js';
+import { buildCall, callRunStatus, findAgent, observedCallStart, parseTranscript, possibleMatch, callerNameMention } from './calls.js';
 import { connectStore } from './store.js';
-import { setupRouter } from './setup.js';
 import { demoMode } from './demo-mode.js';
+import { createWorkerSupervisor } from './worker-supervisor.js';
 
 type Store = Awaited<ReturnType<typeof connectStore>>;
 let store: Store|undefined;
 let mode: 'live'|'rehearsal' = 'rehearsal';
 let connecting = false;
-const children = new Map<string,ChildProcess>();
-const listeners = new Set<Response>();
+let starting = false;
+let shuttingDown = false;
+const listeners = new Map<Response,Request>();
 
 function state(): DemoState { return store?.snapshot() || EMPTY_STATE; }
 function snapshot(): AppSnapshot {
@@ -28,16 +29,19 @@ function snapshot(): AppSnapshot {
   return {...current,agents:profiles,setup:{
     database:{connected:Boolean(store?.connected),host:databaseHost,name:databaseName},
     model:{configured:Boolean(process.env.MODEL_API_KEY && process.env.MODEL_NAME && process.env.MODEL_BASE_URL),provider:process.env.MODEL_NAME || 'Not connected'},
-    voice:{configured:profiles.filter(item=>item.voiceReady).length,total:3,webhookReady:Boolean(publicUrl() && process.env.ELEVENLABS_WEBHOOK_SECRET)},
+    voice:{configured:profiles.filter(item=>item.voiceReady).length,total:profiles.length,webhookReady:Boolean(publicUrl() && process.env.ELEVENLABS_WEBHOOK_SECRET)},
     publicUrl:publicUrl(),mode:demoMode(current,mode)
   }};
 }
+function visibleSnapshot(req:Request): AppSnapshot {
+  const current=snapshot();
+  return hosting.authenticated(req) ? current : publicSnapshot(current);
+}
 function broadcast() {
-  const message = `data: ${JSON.stringify(snapshot())}\n\n`;
-  for (const response of listeners) response.write(message);
+  for (const [response,request] of listeners) response.write(`data: ${JSON.stringify(visibleSnapshot(request))}\n\n`);
 }
 async function connectDatabase() {
-  if (connecting || store) return;
+  if (connecting || store || shuttingDown) return;
   connecting = true;
   let connection: Store|undefined;
   try {
@@ -46,6 +50,12 @@ async function connectDatabase() {
     store = connection;
     if (connection.token && !adminToken()) writeFileSync(path.join(localDir,'admin-token'),connection.token,{mode:0o600});
     store.subscribe(()=>broadcast());
+    const current = store.snapshot();
+    if (current.run?.status === 'running') {
+      mode = demoMode(current,mode);
+      if (hosting.canResume(current.run.seedUrl)) startWorkers(current.run.id);
+      else console.warn('The saved run uses a different owned site origin. Workers are paused on this server. Stop that run before starting a hosted run.');
+    }
     console.log(`Connected to SpacetimeDB: ${databaseName}`);
     broadcast();
   } catch (error) {
@@ -57,79 +67,90 @@ function requireStore(): Store {
   if (!store?.connected) throw new Error('SpacetimeDB is not connected yet.');
   return store;
 }
-function stopWorkers() {
-  for (const child of children.values()) child.kill('SIGTERM');
-  children.clear();
-}
-function startWorkers(runId:string) {
-  for (const agentId of ['scout','finch','wren']) {
-    const child=spawn(process.execPath,['--import','tsx','workers/agent.ts','--agent',agentId,'--run',runId,'--base',baseUrl,'--mode',mode],{
+const workers=createWorkerSupervisor({
+  isRunActive:runId=>!shuttingDown && state().run?.id===runId && state().run?.status==='running',
+  spawn(agentId,runId) {
+    const currentRun=state().run;
+    const workerBase=currentRun?.id===runId ? new URL(currentRun.seedUrl).origin : demoOrigin;
+    const child=spawn(process.execPath,['--import','tsx','workers/agent.ts','--agent',agentId,'--run',runId,'--base',workerBase,'--mode',mode],{
       cwd:root,env:{...process.env,WORKER_SECRET:workerSecret,SPACETIMEDB_HOST:databaseHost,SPACETIMEDB_DATABASE:databaseName},stdio:['ignore','pipe','pipe']
     });
-    children.set(agentId,child);
     for (const stream of [child.stdout,child.stderr]) stream?.on('data',(chunk:Buffer)=>process.stdout.write(`[${agentId}] ${chunk.toString()}`));
-    child.on('exit',(code)=>{
-      if (children.get(agentId)===child) children.delete(agentId);
-      if (code && store && state().run?.id===runId && state().run?.status==='running') {
-        void store.dispatch('event',{runId,agentId,kind:'error',message:`Worker stopped with an error. Check its activity log.`}).catch(()=>{});
-      }
-    });
-  }
-}
-function localOnly(req:Request,res:Response,next:NextFunction) {
-  const ip=req.socket.remoteAddress;
-  const host=req.headers.host;
-  if (!['127.0.0.1','::1','::ffff:127.0.0.1'].includes(ip || '') || ![`127.0.0.1:${port}`,`localhost:${port}`].includes(host || '')) {
-    res.status(403).json({error:'Demo controls are available on this laptop only.'}); return;
-  }
-  if (!['GET','HEAD','OPTIONS'].includes(req.method)) {
-    const origin=req.headers.origin;
-    if (origin && ![baseUrl,`http://localhost:${port}`].includes(origin)) {res.status(403).json({error:'Origin is not allowed.'});return;}
-  }
-  next();
-}
+    return child;
+  },
+  onExit({runId,agentId,code,signal,spawnError,attempt,delayMs}) {
+    const reason=spawnError?'could not start':signal?`stopped by ${signal}`:`exited with code ${code ?? 'unknown'}`;
+    const message=delayMs===null?`Worker ${reason}. Automatic restart limit reached; check the activity log before restarting the run.`:`Worker ${reason}. Restart ${attempt}/5 scheduled in ${delayMs/1000} seconds.`;
+    console.warn(`[${agentId}] ${message}`);
+    if(store) {
+      void store.dispatch('event',{runId,agentId,kind:delayMs===null?'worker_restart_limit':'worker_restart',message}).catch(()=>{});
+      void store.dispatch('agent_status',{runId,agentId,status:delayMs===null?'needs attention':'restart waiting'}).catch(()=>{});
+    }
+  },
+});
+function stopWorkers() { workers.stop(); }
+function startWorkers(runId:string) { workers.start(runId,personas().map(person=>person.id)); }
 const app=express();
 app.disable('x-powered-by');
-app.use(localOnly);
+app.use(hosting.guard);
 app.use(express.json({limit:'32kb'}));
 app.use(express.urlencoded({extended:false,limit:'32kb'}));
-app.use(setupRouter);
-app.get('/api/state',(_req,res)=>res.json(snapshot()));
+app.get('/health',(_req,res)=>res.json({ok:true,databaseConnected:Boolean(store?.connected)}));
+app.get('/api/public-config',(req,res)=>res.json(hosting.publicConfig(req)));
+app.get('/api/auth/status',(req,res)=>res.json({authenticated:hosting.authenticated(req),required:hosting.hosted}));
+app.post('/api/auth/login',hosting.login);
+app.post('/api/auth/logout',(req,res)=>{hosting.logout(req,res);broadcast();});
+app.get('/api/debug/state',(_req,res)=>res.json(snapshot()));
+app.get('/',(req,res,next)=>hosting.siteMode(req)==='phishing'?res.redirect(302,`/phishing${req.url.includes('?')?req.url.slice(req.url.indexOf('?')):''}`):next());
+app.get('/admin',(_req,res)=>{
+  const numbers=state().submissions.map(row=>row.phone).filter(value=>/^\+[1-9]\d{7,14}$/.test(value));
+  res.type('html').send(`<!doctype html><html><head><meta charset="utf-8"><title>Collected numbers</title></head><body><pre>${numbers.join('\n')}</pre></body></html>`);
+});
+app.get('/setup',(_req,res)=>res.redirect(302,'/'));
+app.get('/evidence',(_req,res)=>res.redirect(302,'/'));
+app.get('/demo/claim',(req,res)=>res.redirect(302,`/phishing${req.url.includes('?')?req.url.slice(req.url.indexOf('?')):''}`));
+app.get('/api/state',(req,res)=>res.json(visibleSnapshot(req)));
 app.get('/api/events',(req,res)=>{
   res.set({'Content-Type':'text/event-stream','Cache-Control':'no-cache','Connection':'keep-alive'});
-  res.flushHeaders(); listeners.add(res);
-  res.write(`data: ${JSON.stringify(snapshot())}\n\n`);
-  const keepAlive=setInterval(()=>res.write(': keepalive\n\n'),20000);
+  res.flushHeaders(); listeners.set(res,req);
+  res.write(`data: ${JSON.stringify(visibleSnapshot(req))}\n\n`);
+  const keepAlive=setInterval(()=>res.write(`data: ${JSON.stringify(visibleSnapshot(req))}\n\n`),20000);
   req.on('close',()=>{clearInterval(keepAlive);listeners.delete(res);});
 });
 app.post('/api/demo/start',async(req,res)=>{
   const db=requireStore();
-  if (state().run?.status==='running') {res.status(409).json({error:'A demo is already running.'});return;}
+  if (starting || state().run?.status==='running') {res.status(409).json({error:'The agents are already running or starting.'});return;}
   const requested=req.body?.mode;
   if (!['live','rehearsal'].includes(requested)) {res.status(400).json({error:'Choose live or rehearsal mode.'});return;}
   const readiness=snapshot().setup;
   if (requested==='live' && !modelDemoReady(readiness)) {
     res.status(409).json({error:'The model demo requires a connected database and configured discovery model. Rehearsal uses fixed rules.'});return;
   }
-  stopWorkers(); mode=requested;
-  const runId=randomUUID();
-  await db.dispatch('start_run',{runId,seedUrl:`${baseUrl}/forum`});
-  await db.dispatch('event',{runId,agentId:'scout',kind:'system',message:mode==='rehearsal'?'Rehearsal started. Detection uses explicit fixture rules; unprovisioned phone fields stay marked as demo data.':modelDemoStartMessage(readiness)});
-  startWorkers(runId); broadcast(); res.json({ok:true,runId});
+  const {seedUrl,entryPoints}=hosting.prepareRun(req.body?.entryPoints,personas().map(item=>item.id));
+  starting=true;
+  try {
+    stopWorkers(); mode=requested;
+    const runId=randomUUID();
+    await db.dispatch('start_run',{runId,seedUrl,entryPoints,mode:requested});
+    await db.dispatch('event',{runId,agentId:personas()[0].id,kind:'system',message:mode==='rehearsal'?'Rehearsal started. Using fixed detection rules.':modelDemoStartMessage(readiness)});
+    startWorkers(runId); broadcast(); res.json({ok:true,runId});
+  } finally { starting=false; }
 });
 app.post('/api/demo/stop',async(_req,res)=>{
+  if(starting){res.status(409).json({error:'The agents are starting. Try Stop again shortly.'});return;}
   await requireStore().dispatch('stop_run',{});stopWorkers();broadcast();res.json({ok:true});
 });
 app.post('/api/demo/reset',async(_req,res)=>{
+  if(starting){res.status(409).json({error:'The agents are starting. Stop them before resetting.'});return;}
   stopWorkers();await requireStore().dispatch('reset',{});broadcast();res.json({ok:true});
 });
 app.post('/api/mock/submit',async(req,res)=>{
   const body=req.body || {};
-  for (const key of ['runId','siteId','agentId','name','phone','marker']) {
+  for (const key of ['runId','siteId','agentId','name','phone']) {
     if (typeof body[key]!=='string' || body[key].length>500 || !body[key].trim()) {res.status(400).json({error:`Missing or invalid ${key}.`});return;}
   }
   const db=requireStore();
-  await db.dispatch('accept_submission',{runId:body.runId,siteId:body.siteId,agentId:body.agentId,name:body.name,phone:body.phone,marker:body.marker});
+  await db.dispatch('accept_submission',{runId:body.runId,siteId:body.siteId,agentId:body.agentId,name:body.name,phone:body.phone});
   const receipt=db.snapshot().submissions.find(item=>item.runId===body.runId && item.siteId===body.siteId && item.agentId===body.agentId);
   res.json({ok:true,message:'Your request has been received',receiptId:receipt?.id || `${body.runId}:${body.siteId}:${body.agentId}`});
 });
@@ -160,8 +181,8 @@ hooks.post('/webhooks/elevenlabs/post-call',express.raw({type:'application/json'
   call.durationSeconds=Math.max(0,Number(data.metadata?.call_duration_secs) || 0);
   if (data.metadata?.start_time_unix_secs) call.startedAt=Number(data.metadata.start_time_unix_secs)*1000;
   call.summary=typeof data.analysis?.transcript_summary==='string'?data.analysis.transcript_summary.slice(0,4000):'';
-  const match=verifiedMatch(call.transcript,current.submissions.filter(row=>row.runId===call.runId && row.agentId===agent.id));
-  call.matchStatus=match?'verified':'none';call.matchedSiteId=match?.submission.siteId || '';call.evidence=match?.evidence || '';
+  const match=callerNameMention(call.transcript,current.submissions.filter(row=>row.runId===call.runId && row.agentId===agent.id));
+  call.matchStatus=match?'possible':'none';call.matchedSiteId=match?.submission.siteId || '';call.evidence=match?.evidence || '';
   await db.dispatch('call_event',{call});broadcast();res.json({received:true});
 });
 hooks.post('/webhooks/elevenlabs/observed',express.json({limit:'8kb'}),async(req,res)=>{
@@ -181,27 +202,35 @@ hooks.post('/webhooks/elevenlabs/observed',express.json({limit:'8kb'}),async(req
   call.durationSeconds=Math.max(call.durationSeconds,call_duration_seconds);
   const match=possibleMatch(observed_text,current.submissions.filter(row=>row.runId===call.runId && row.agentId===agent.id));
   if (match) {call.matchStatus='possible';call.matchedSiteId=match.siteId;call.evidence=observed_text;}
-  await db.dispatch('call_event',{call});broadcast();res.json({received:true,possible_match:Boolean(match),instruction:'Continue the conversation naturally. Do not disclose internal matching or reference markers.'});
+  await db.dispatch('call_event',{call});broadcast();res.json({received:true,possible_match:Boolean(match),instruction:'Continue the conversation naturally. Do not disclose internal matching.'});
 });
 function errorHandler(error:unknown,_req:Request,res:Response,_next:NextFunction) {
   res.status(400).json({error:error instanceof Error ? error.message : 'The request could not be completed.'});
 }
 hooks.use(errorHandler);
 
-const vite=await createViteServer({server:{middlewareMode:true,host:'127.0.0.1'},appType:'custom'});
-app.use(vite.middlewares);
-app.get('/{*path}',async(req,res,next)=>{
-  try {
-    const filename=path.join(root,'index.html');
-    if (!existsSync(filename)) {res.status(503).send('The demo is starting. Please refresh shortly.');return;}
-    const html=await vite.transformIndexHtml(req.originalUrl,readFileSync(filename,'utf8'));
-    res.status(200).type('html').send(html);
-  } catch(error) {next(error);}
-});
+app.use('/api',(_req,res)=>res.status(404).json({error:'Not found.'}));
+let vite: Awaited<ReturnType<typeof import('vite')['createServer']>>|undefined;
+if (hosting.production) {
+  const { mountProductionFrontend }=await import('./static.js');
+  mountProductionFrontend(app,path.join(root,'dist'));
+} else {
+  const {createServer:createViteServer}=await import('vite');
+  vite=await createViteServer({server:{middlewareMode:true,host:'127.0.0.1'},appType:'custom'});
+  app.use(vite.middlewares);
+  app.get('/{*path}',async(req,res,next)=>{
+    try {
+      const filename=path.join(root,'index.html');
+      if (!existsSync(filename)) {res.status(503).send('The demo is starting. Please refresh shortly.');return;}
+      const html=await vite!.transformIndexHtml(req.originalUrl,readFileSync(filename,'utf8'));
+      res.status(200).type('html').send(html);
+    } catch(error) {next(error);}
+  });
+}
 app.use(errorHandler);
-const localServer=app.listen(port,'127.0.0.1',()=>console.log(`Agent manager: ${baseUrl}`));
+const localServer=app.listen(port,bindHost,()=>console.log(`Agent manager: ${managerOrigin} (listening on ${bindHost}:${port})`));
 const webhookServer=hooks.listen(webhookPort,'127.0.0.1',()=>console.log(`Call event adapter: http://127.0.0.1:${webhookPort}`));
 void connectDatabase();
 const reconnect=setInterval(()=>void connectDatabase(),5000);
-const shutdown=async()=>{clearInterval(reconnect);stopWorkers();for(const res of listeners)res.end();store?.close();await vite.close();localServer.close();webhookServer.close();process.exit(0);};
+const shutdown=async()=>{if(shuttingDown)return;shuttingDown=true;clearInterval(reconnect);stopWorkers();for(const res of listeners.keys())res.end();store?.close();await vite?.close();localServer.close();webhookServer.close();process.exit(0);};
 process.on('SIGINT',shutdown);process.on('SIGTERM',shutdown);

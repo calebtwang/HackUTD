@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { PERSONAS, type Persona } from '../shared/contracts.js';
+import { createHosting } from './hosting.js';
 
 export const root = process.cwd();
 export const localDir = path.join(root, '.local');
@@ -19,6 +20,10 @@ export const voiceToolSecret = process.env.VOICE_TOOL_SECRET || localSecret('voi
 export const port = Number(process.env.PORT || 3210);
 export const webhookPort = Number(process.env.WEBHOOK_PORT || 3211);
 export const baseUrl = `http://127.0.0.1:${port}`;
+export const bindHost = process.env.HOST || process.env.BIND_HOST || '127.0.0.1';
+export const hosting = createHosting({port,managerOrigin:process.env.MANAGER_PUBLIC_ORIGIN,demoOrigin:process.env.DEMO_PUBLIC_ORIGIN,demoAliases:process.env.DEMO_PUBLIC_ALIASES?.split(',').map(value=>value.trim()).filter(Boolean),judgeCode:process.env.JUDGE_ACCESS_CODE,production:process.env.NODE_ENV==='production'});
+export const managerOrigin = hosting.managerOrigin;
+export const demoOrigin = hosting.demoOrigin;
 const databaseConfigFile=path.join(localDir,'database.json');
 const databaseConfig: {host?:string;name?:string;tokenFile?:string}=existsSync(databaseConfigFile)?JSON.parse(readFileSync(databaseConfigFile,'utf8')):{};
 export const databaseHost = process.env.SPACETIMEDB_HOST || databaseConfig.host || 'http://127.0.0.1:3000';

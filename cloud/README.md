@@ -54,7 +54,7 @@ The tool binds `conversation_id` to `system__conversation_id`, `agent_id` to `sy
 
 Send the original raw JSON with `ElevenLabs-Signature: t=<unix-seconds>,v0=<hex-HMAC-SHA256>`. The signed bytes are the timestamp, a period, and the unchanged raw request body. Verification occurs before parsing. The timestamp must be finite and within 30 minutes in either direction. Incoming bodies are capped while streaming: 8 KiB for observations, 2 MiB for final events. Provider transcripts are further capped to fit the database reducer limits.
 
-Only caller-first marker mentions in the signed transcript can become verified attribution evidence. A name by itself is insufficient; the agent repeating its own marker cannot manufacture evidence. Final call writes are keyed by provider conversation ID; duplicate delivery updates the same database record. The module also prevents a concurrently delayed provisional observation from downgrading a completed call.
+A caller-first full-name mention can produce a possible association only if that name was submitted to one site in the current run. Names are not proof of site access; no verified source attribution is claimed. Agent-disclosed names and ambiguous names shared across sites cannot establish a source. Final call writes are keyed by provider conversation ID; duplicate delivery updates the same database record. The module prevents delayed provisional observations from downgrading a completed call.
 
 ## SpacetimeDB HTTP interface
 

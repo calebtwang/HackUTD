@@ -1,0 +1,27 @@
+# Explicit source allowlist: credentials and runtime state never enter the context.
+*
+!Dockerfile
+!package.json
+!package-lock.json
+!index.html
+!tsconfig.json
+!vite.config.ts
+!src/
+!src/**
+!server/
+!server/**
+!workers/
+!workers/**
+!shared/
+!shared/**
+!deploy/
+deploy/*
+!deploy/healthcheck.mjs
+!deploy/supervise.mjs
+**/.env
+**/.env.*
+**/.local
+**/.git
+**/node_modules
+**/screenshots
+**/*.log

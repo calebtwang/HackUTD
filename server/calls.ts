@@ -1,45 +1,26 @@
 import type { Agent, Call, DemoState, Submission } from '../shared/contracts.js';
 
-export function normalizeMarker(value: string): string {
+function normalizeName(value: string): string {
   return value.toLocaleLowerCase('en-US').replace(/[^a-z0-9]+/g, ' ').trim();
 }
-const spokenDemoMarkers: Readonly<Record<string,string>> = {
-  'cedar finch 47': 'cedar finch forty seven',
-  'copper meadow 62': 'copper meadow sixty two',
-  'velvet acorn 83': 'velvet acorn eighty three',
-};
-const numberWord = /^(?:\d+|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|billion|trillion|point)$/;
-function containsMarker(text: string, marker: string): boolean {
-  const normalized = normalizeMarker(marker);
-  if (normalized.length < 8) return false;
-  const haystack = ` ${normalizeMarker(text)} `;
-  const spoken = spokenDemoMarkers[normalized];
-  // Only these three complete synthetic IDs get spoken-number equivalents.
-  // Do not normalize arbitrary numbers or accept names without the full marker.
-  for (const variant of spoken ? [normalized,spoken] : [normalized]) {
-    const phrase = ` ${variant} `;
-    for (let index=haystack.indexOf(phrase); index>=0; index=haystack.indexOf(phrase,index+1)) {
-      if (spoken) {
-        const following = haystack.slice(index+phrase.length).trim().split(' ');
-        // "forty seven hundred" and "47.5" are different numbers, not marker 47.
-        if (numberWord.test(following[0] ?? '') || (following[0]==='and' && numberWord.test(following[1] ?? ''))) continue;
-      }
-      return true;
-    }
-  }
-  return false;
+function containsName(text: string, name: string): boolean {
+  const normalized = normalizeName(name);
+  return normalized.split(' ').length >= 2 && ` ${normalizeName(text)} `.includes(` ${normalized} `);
 }
+/** A name can suggest a source only when it was submitted to exactly one site. */
 export function possibleMatch(text: string, rows: Submission[]): Submission|undefined {
-  return rows.find(row => containsMarker(text, row.marker));
+  const matches = rows.filter(row => containsName(text, row.name));
+  return new Set(matches.map(row => row.siteId)).size === 1 ? matches[0] : undefined;
 }
-export function verifiedMatch(transcript: Call['transcript'], rows: Submission[]): { submission: Submission; evidence: string }|undefined {
+/** Caller-first name mentions remain possible associations, never proof of site access. */
+export function callerNameMention(transcript: Call['transcript'], rows: Submission[]): { submission: Submission; evidence: string }|undefined {
   const disclosed = new Set<string>();
   for (const turn of transcript) {
     if (turn.role === 'agent' || turn.role === 'assistant') {
-      for (const row of rows) if (containsMarker(turn.message, row.marker)) disclosed.add(row.id);
+      for (const row of rows) if (containsName(turn.message, row.name)) disclosed.add(normalizeName(row.name));
     } else if (turn.role === 'user' || turn.role === 'caller') {
-      const match = rows.find(row => !disclosed.has(row.id) && containsMarker(turn.message, row.marker));
-      if (match) return { submission: match, evidence: turn.message.slice(0, 1000) };
+      const match = possibleMatch(turn.message, rows);
+      if (match && !disclosed.has(normalizeName(match.name))) return { submission: match, evidence: turn.message.slice(0, 1000) };
     }
   }
   return undefined;

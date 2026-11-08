@@ -14,7 +14,7 @@ try {
   // Preview keeps the same-origin live feed enabled; crawler workers omit it.
   await session.context.route(`${base}/api/events`, route => route.continue());
   await session.page.setViewportSize({ width: 1280, height: 900 });
-  for (const [route, name] of [['/', 'dashboard'], ['/demo/claim', 'bank'], ['/forum', 'forum'], ['/admin', 'collected-numbers'], ['/evidence', 'evidence'], ['/setup', 'setup']] as const) {
+  for (const [route, name] of [['/', 'dashboard'], ['/phishing', 'bank'], ['/forum', 'forum'], ['/admin', 'collected-numbers'], ['/debug', 'debug']] as const) {
     await session.page.goto(base + route, { waitUntil: 'networkidle' });
     await session.page.locator('body').waitFor();
     await session.page.screenshot({ path: resolve(output, `${name}.png`), fullPage: true });

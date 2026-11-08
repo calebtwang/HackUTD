@@ -14,7 +14,7 @@ const resourcesArg = args.find(arg=>arg.startsWith('--resources='));
 if (args.some(arg=>arg!=='--apply' && arg!=='--dry-run' && !arg.startsWith('--resources='))) throw new Error('Use [--dry-run|--apply] [--resources=RESOURCE_ID,RESOURCE_ID,RESOURCE_ID].');
 if (apply && args.includes('--dry-run')) throw new Error('Choose apply or dry-run, not both.');
 const resourceIds = resourcesArg?.slice('--resources='.length).split(',').filter(Boolean) || [];
-if (resourceIds.length && (resourceIds.length>3 || new Set(resourceIds).size!==resourceIds.length)) throw new Error('Select one to three distinct existing voice resources.');
+if (resourceIds.length && (resourceIds.length>2 || new Set(resourceIds).size!==resourceIds.length)) throw new Error('Select one or two distinct existing voice resources.');
 const project = process.env.PHOTON_PROJECT_ID;
 const key = process.env.PHOTON_API_KEY;
 if (!project?.startsWith('pho_prj_') || !key) throw new Error('Set the Photon Beta project ID and API key locally.');
@@ -39,7 +39,7 @@ async function run() {
   const envCredentials=sipEnvironmentCredentials(process.env.ELEVENLABS_SIP_USERNAME,process.env.ELEVENLABS_SIP_PASSWORD);
   const [resources,profiles]=await Promise.all([pages<Resource>(`${root}/resources?ability=pstn_voice&state=active`,'resources'),pages<Profile>(`${root}/voice/profiles`,'profiles')]);
   console.log(JSON.stringify({mode:apply?'apply':'dry-run',eligibleResources:resources.map(r=>({resourceId:r.resourceId,type:r.type,state:r.state,activationState:r.detail.activationState||'unknown'})),note:'Active ownership is not proof of a working call. No numbers will be purchased.'},null,2));
-  if(!resourceIds.length){console.log('To preview exact routing, select one to three owned resource IDs using --resources=ID,ID,ID.');if(apply)throw new Error('Apply requires explicit resource selection.');return;}
+  if(!resourceIds.length){console.log('To preview exact routing, select one or two owned resource IDs using --resources=ID,ID.');if(apply)throw new Error('Apply requires explicit resource selection.');return;}
   // Photon admits routing by ownership and pstn_voice ability; activation is a separate timer.
   // Preparing a route never marks the number callable or tested.
   for(const id of resourceIds){const r=resources.find(r=>r.resourceId===id);if(!r||r.state!=='active'||!r.abilities.includes('pstn_voice'))throw new Error('A selected resource is not an owned voice-capable line.');}
@@ -60,7 +60,7 @@ async function run() {
   // Any routing change invalidates previous manual test readiness.
   const personaFile=resolve('.local/personas.json');
   const personas=await readJson<Record<string,Record<string,unknown>>>(personaFile,{});
-  for(const id of ['scout','finch','wren'])if(personas[id])personas[id].voiceReady=false;
+  for(const id of ['scout','finch'])if(personas[id])personas[id].voiceReady=false;
   await writeFile(personaFile,JSON.stringify(personas,null,2)+'\n',{mode:0o600});
   if(!defaultExists)await request(`${root}/voice/profiles/default`,'PUT',{protocol:'sip',mediaEncryption:'auto'});
   if(!profile)profile=await request<Profile>(`${root}/voice/profiles`,'POST',{name:profileName,protocol:'sip',mediaEncryption:'auto'});

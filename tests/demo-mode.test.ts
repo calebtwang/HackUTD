@@ -3,6 +3,11 @@ import assert from 'node:assert/strict';
 import { demoMode } from '../server/demo-mode';
 import { EMPTY_STATE, type DemoState } from '../shared/contracts';
 
+test('a long-running model crawl retains its mode after old activity is evicted', () => {
+  const state: DemoState = {...structuredClone(EMPTY_STATE),run:{id:'ongoing',status:'running',mode:'live',seedUrl:'http://127.0.0.1:3210/forum',startedAt:1}};
+  assert.equal(demoMode(state,'rehearsal'),'live');
+});
+
 test('a persisted live run stays live when the local server restarts in rehearsal mode', () => {
   const state: DemoState = { ...structuredClone(EMPTY_STATE),
     run: {id:'current',status:'complete',seedUrl:'http://127.0.0.1:3210/forum',startedAt:2000},

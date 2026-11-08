@@ -6,7 +6,7 @@ import { resolve } from 'node:path';
 import { PERSONAS, type Persona } from '../shared/contracts.ts';
 import { makeAgentConfig, observationTool, publicWebhookBase } from './voice-config.ts';
 
-type PersonaId = 'scout' | 'finch' | 'wren';
+type PersonaId = 'scout' | 'finch';
 type Resources = {
   scope: string;
   secretId?: string;
@@ -57,9 +57,9 @@ function parseOptions() {
     else if (arg === '--voice-only') voiceOnly = true;
     else if (arg === '--agent') {
       const value = process.argv[++index];
-      if (!['scout', 'finch', 'wren', 'all'].includes(value)) throw new SetupError('--agent must be scout, finch, wren, or all.');
+      if (!['scout', 'finch', 'all'].includes(value)) throw new SetupError('--agent must be scout, finch, or all.');
       selection = value as PersonaId | 'all';
-    } else throw new SetupError('Usage: configure-elevenlabs.ts [--agent scout|finch|wren|all] [--dry-run|--apply] [--voice-only]');
+    } else throw new SetupError('Usage: configure-elevenlabs.ts [--agent scout|finch|all] [--dry-run|--apply] [--voice-only]');
   }
   return { selection, apply, voiceOnly };
 }

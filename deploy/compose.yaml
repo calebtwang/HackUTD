@@ -1,0 +1,73 @@
+name: hackutd
+services:
+  app:
+    container_name: hackutd-app
+    image: hackutd-app:local
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 40s
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 3g
+    cpus: 1.8
+    pids_limit: 512
+    shm_size: 512mb
+    tmpfs:
+      - /tmp:size=268435456,mode=1777
+      - /home/node/.cache:size=67108864,uid=1000,gid=1000,mode=0700
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "3210"
+      WEBHOOK_PORT: "3211"
+      MANAGER_PUBLIC_ORIGIN: https://phoney.desmos.help
+      DEMO_PUBLIC_ORIGIN: https://phish.popsicle.space
+      DEMO_PUBLIC_ALIASES: https://bank.desmos.help
+      DOTENV_CONFIG_PATH: /run/secrets/demo.env
+      NODE_OPTIONS: --max-old-space-size=768
+    volumes:
+      - type: bind
+        source: ${DEMO_PRIVATE_DIR:-/opt/hackutd-private}/demo.env
+        target: /run/secrets/demo.env
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${DEMO_PRIVATE_DIR:-/opt/hackutd-private}/.local
+        target: /app/.local
+        bind:
+          create_host_path: false
+    networks: [demo]
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+  caddy:
+    container_name: hackutd-caddy
+    image: caddy:2.11.9-alpine
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [demo]
+    mem_limit: 256m
+    pids_limit: 128
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+networks:
+  demo: {}
+volumes:
+  caddy_data: {}
+  caddy_config: {}

@@ -26,7 +26,7 @@ export async function connectStore(options: StoreOptions = {}): Promise<DemoStor
   const parse = <T>(table: { iter(): Iterable<{ data: string }> }): T[] => Array.from(table.iter(), x => JSON.parse(x.data) as T);
   const snapshot = (): DemoState => ({
     run: parse<NonNullable<DemoState['run']>>(connection.db.demoRun)[0] ?? null,
-    agents: parse<DemoState['agents'][number]>(connection.db.agent).sort((a, b) => ['scout', 'finch', 'wren'].indexOf(a.id) - ['scout', 'finch', 'wren'].indexOf(b.id)),
+    agents: parse<DemoState['agents'][number]>(connection.db.agent).sort((a, b) => ['scout', 'finch'].indexOf(a.id) - ['scout', 'finch'].indexOf(b.id)),
     sites: parse(connection.db.site), jobs: parse(connection.db.job), submissions: parse(connection.db.submission),
     events: parse<DemoState['events'][number]>(connection.db.demoEvent).sort((a, b) => a.timestamp - b.timestamp || a.id.localeCompare(b.id)),
     calls: parse(connection.db.call),

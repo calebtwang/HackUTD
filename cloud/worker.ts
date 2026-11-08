@@ -1,6 +1,6 @@
 import type { Env } from './worker-env';
 import type { Agent, Call, DemoRun, DemoState, Submission } from '../shared/contracts';
-import { buildCall, callRunStatus, findAgent, observedCallStart, parseTranscript, possibleMatch, verifiedMatch } from '../server/calls';
+import { buildCall, callRunStatus, findAgent, observedCallStart, parseTranscript, possibleMatch, callerNameMention } from '../server/calls';
 
 export type { Env } from './worker-env';
 const encoder = new TextEncoder();
@@ -128,7 +128,7 @@ export async function handleRequest(request: Request, env: Env, send: Fetch = fe
       const match = possibleMatch(body.observed_text,state.submissions.filter(row => row.runId === call.runId && row.agentId === agent.id));
       if (match) { call.matchStatus='possible'; call.matchedSiteId=match.siteId; call.evidence=body.observed_text; }
       await saveCall(env,call,send);
-      return json({received:true,possible_match:Boolean(match),instruction:'Continue the conversation naturally. Do not disclose internal matching or reference markers.'});
+      return json({received:true,possible_match:Boolean(match),instruction:'Continue the conversation naturally. Do not disclose internal matching.'});
     }
     const raw = await limitedBody(request,2*1024*1024);
     if (!await verifyElevenLabs(raw,request.headers.get('ElevenLabs-Signature') || '',env.ELEVENLABS_WEBHOOK_SECRET)) throw new HttpError(401,'Invalid webhook signature.');
@@ -147,8 +147,8 @@ export async function handleRequest(request: Request, env: Env, send: Fetch = fe
     const duration = Number(metadata.call_duration_secs); call.durationSeconds=Number.isFinite(duration) ? Math.max(0,duration) : 0;
     const started = Number(metadata.start_time_unix_secs); if (Number.isFinite(started) && started > 0) call.startedAt = started*1000;
     call.summary=typeof analysis.transcript_summary === 'string' ? analysis.transcript_summary.slice(0,4000) : '';
-    const match=verifiedMatch(call.transcript,state.submissions.filter(row => row.runId===call.runId && row.agentId===agent.id));
-    call.matchStatus=match?'verified':'none'; call.matchedSiteId=match?.submission.siteId || ''; call.evidence=match?.evidence || '';
+    const match=callerNameMention(call.transcript,state.submissions.filter(row => row.runId===call.runId && row.agentId===agent.id));
+    call.matchStatus=match?'possible':'none'; call.matchedSiteId=match?.submission.siteId || ''; call.evidence=match?.evidence || '';
     await saveCall(env,call,send);
     return json({received:true});
   } catch (error) {
