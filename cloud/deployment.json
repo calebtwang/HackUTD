@@ -1,0 +1,13 @@
+{
+  "name": "honeyline-webhooks",
+  "main_module": "worker.mjs",
+  "compatibility_date": "2026-11-08",
+  "observability": { "enabled": true, "head_sampling_rate": 1, "traces": { "enabled": true, "head_sampling_rate": 1 } },
+  "bindings": [
+    { "name": "SPACETIMEDB_HOST", "type": "plain_text" },
+    { "name": "SPACETIMEDB_DATABASE", "type": "plain_text" },
+    { "name": "SPACETIMEDB_TOKEN", "type": "secret_text" },
+    { "name": "VOICE_TOOL_SECRET", "type": "secret_text" },
+    { "name": "ELEVENLABS_WEBHOOK_SECRET", "type": "secret_text" }
+  ]
+}
